@@ -152,6 +152,10 @@ class ArenaSim(private val movement: MovementState) {
                 // outranks the duck
                 val holdMatches = (ssDir > 0f && movement.heldUp) ||
                     (ssDir < 0f && movement.heldDown)
+                // feet need to re-gather before stepping AGAIN: a fresh
+                // sidestep (either direction) only from ~f20 of the 24.
+                // The sidewalk hold path is exempt — walking starts mid-step
+                val canRestep = ssT >= SIDESTEP_RESTEP
                 when {
                     bdEvt -> {
                         state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false
@@ -161,8 +165,8 @@ class ArenaSim(private val movement: MovementState) {
                         state = MoveState.DASH; dashT = 0f; dashMaintain = false
                         ssProgress = -1f
                     }
-                    ssUpEvt -> startSidestep(+1f)
-                    ssDownEvt -> startSidestep(-1f)
+                    ssUpEvt && canRestep -> startSidestep(+1f)
+                    ssDownEvt && canRestep -> startSidestep(-1f)
                     holdMatches -> {}
                     crouchHeld -> { state = MoveState.CROUCH; ssProgress = -1f }
                     relDir == 1 -> { state = MoveState.WALK_F; ssProgress = -1f }
@@ -452,6 +456,7 @@ class ArenaSim(private val movement: MovementState) {
         const val BACKDASH_DIST = 0.60f     // arena units covered
         const val BD_MOVE_SPLIT = 0.88f     // share of distance in frames 0-19
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
+        const val SIDESTEP_RESTEP = 20f / 60f // earliest step-into-step chain
         const val SIDESTEP_ARC = 0.84f      // lateral units circled per step
                                             // (user: was half of a real step)
         const val SIDEWALK_SPEED = 1.7f     // brisk Tekken strafe, units / s
