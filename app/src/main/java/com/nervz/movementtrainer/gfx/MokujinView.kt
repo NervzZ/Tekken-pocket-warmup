@@ -690,20 +690,20 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val inTurn = bump(u, 0.10f, 0.52f)
         // OUTSIDE leg: pushes while GROUNDED early, then takes its own step
         // in once the inside foot is planted
-        val push = bump(u, 0.05f, 0.50f)
-        val outStep = bump(u, 0.50f, 0.95f)
+        val push = bump(u, 0.05f, 0.48f)
+        val outStep = bump(u, 0.42f, 0.90f)
         // sides calibrated by probe + user-confirmed: ssup = step into the
         // background = B-side destination for P1
         val inSide = if (dirX > 0f) "B" else "A"
         val outSide = if (dirX > 0f) "A" else "B"
         val bias = -5f * dirX * lean
-        val pushZ = -6f * dirX * push           // outside leg angles out = drive
+        val pushZ = -10f * dirX * push          // outside leg angles out = drive
         val out = HashMap<String, FloatArray>()
         // high-knee needs headroom: partially unwind this leg's stance coil
         // while it's airborne (the lead leg is already deeply bent).
         // NOTE: trim degrees compress ~0.65:1 into world angles through the
         // conjugated chain — amplitudes below are sized for that (probe-fit)
-        val unwind = 0.65f * inLift
+        val unwind = 0.5f * inLift
         for (g in arrayOf("THIGH_$inSide", "SHIN_$inSide", "FOOT_$inSide")) {
             val v = STANCE_OFFSETS[g] ?: continue
             out[g] = floatArrayOf(-v[0] * unwind, -v[1] * unwind, -v[2] * unwind)
@@ -712,14 +712,14 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             val cur = out.getOrPut(g) { floatArrayOf(0f, 0f, 0f) }
             cur[0] += rx; cur[1] += ry; cur[2] += rz
         }
-        add("THIGH_$inSide", -75f * inLift, 0f, bias + 8f * dirX * inTurn)
-        add("SHIN_$inSide", 115f * inLift, 0f, 0f)
-        add("FOOT_$inSide", -28f * inLift, 0f, -bias * 0.8f - 6f * dirX * inTurn)
-        add("THIGH_$outSide", -4f * outStep, 0f, bias + pushZ)
-        add("SHIN_$outSide", -4f * push + 19f * outStep, 0f, 0f)
+        add("THIGH_$inSide", -52f * inLift, 0f, bias + 8f * dirX * inTurn)
+        add("SHIN_$inSide", 80f * inLift, 0f, 0f)
+        add("FOOT_$inSide", -20f * inLift, 0f, -bias * 0.8f - 6f * dirX * inTurn)
+        add("THIGH_$outSide", -6f * outStep, 0f, bias + pushZ)
+        add("SHIN_$outSide", -4f * push + 30f * outStep, 0f, 0f)
         add(
             "FOOT_$outSide",
-            (4f * push - 14f * outStep) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
+            (4f * push - 22f * outStep) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
         )
         out["TORSO"] = floatArrayOf(0f, 3f * dirX * lean, -5f * dirX * lean)
         out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
