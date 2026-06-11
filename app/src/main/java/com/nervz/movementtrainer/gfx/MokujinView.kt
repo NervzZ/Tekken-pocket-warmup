@@ -61,24 +61,25 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         private const val TARGET_HEIGHT = 1.66f
         private const val BASE_YAW_DEG = 90f
 
-        // Battle-stance offsets from the authored pose: per group (rx, ry, rz)
-        // degrees about the model-space pivot. rx: + swings backward, - forward.
-        // Tuned live via adb (Calibration.stanceOverrides), then baked here.
-        val STANCE: Map<String, FloatArray> = mapOf(
-            "TORSO" to floatArrayOf(-6f, 12f, 0f),
-            "HEAD" to floatArrayOf(4f, -8f, 0f),
-            "UARM_A" to floatArrayOf(-12f, 0f, 0f),
-            "FARM_A" to floatArrayOf(-38f, 0f, 0f),
-            "UARM_B" to floatArrayOf(6f, 0f, 0f),
-            "FARM_B" to floatArrayOf(8f, 0f, 0f),
-            "THIGH_A" to floatArrayOf(-14f, 0f, 0f),
-            "SHIN_A" to floatArrayOf(20f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-6f, 0f, 0f),
-            "THIGH_B" to floatArrayOf(10f, 0f, 0f),
-            "SHIN_B" to floatArrayOf(24f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-18f, 0f, 0f),
+        // Battle stance, authored as model-frame offsets ON TOP of the locked
+        // T-pose (trim layer semantics): left (B) leg/arm lead, right (A)
+        // anchored back; the body yaw lives on the root. rx: + = backward
+        // swing / forward torso hunch; arm ry/rz signs mirror per side.
+        val STANCE_OFFSETS: Map<String, FloatArray> = mapOf(
+            "TORSO" to floatArrayOf(8f, 0f, 0f),
+            "HEAD" to floatArrayOf(0f, 20f, 0f),
+            "THIGH_B" to floatArrayOf(-16f, 0f, 0f),
+            "SHIN_B" to floatArrayOf(14f, 0f, 0f),
+            "THIGH_A" to floatArrayOf(16f, 0f, 0f),
+            "SHIN_A" to floatArrayOf(18f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-30f, -20f, 0f),
+            "UARM_B" to floatArrayOf(0f, -22f, -65f),
+            "FARM_B" to floatArrayOf(0f, -38f, 95f),
+            "UARM_A" to floatArrayOf(0f, 25f, 72f),
+            "FARM_A" to floatArrayOf(0f, 30f, -100f),
         )
-        const val STANCE_ROOT_DY = -0.07f
+        const val STANCE_BODY_YAW = -22f
+        const val STANCE_ROOT_DY = -0.05f
 
         // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
         // head has no ball joints to derive direction from; foot centroids are a
@@ -251,24 +252,46 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         asset = a
     }
 
+    // The locked T-pose trims (analytical base corrections + user-tuned values).
+    private fun tposeTrims(): HashMap<String, FloatArray> {
+        val trim = HashMap(TPOSE_TRIM)
+        trim["HEAD"] = floatArrayOf(-6f, Calibration.headYaw, 0f)
+        trim["PELVIS"] = floatArrayOf(0f, Calibration.pelvisYaw, 0f)
+        trim["FOOT_A"] = floatArrayOf(0f, Calibration.footAYaw, 0f)
+        trim["FOOT_B"] = floatArrayOf(
+            Calibration.footBPitch, Calibration.footBYaw, Calibration.footBRoll,
+        )
+        return trim
+    }
+
+    private fun sumInto(into: HashMap<String, FloatArray>, add: Map<String, FloatArray>) {
+        for ((k, v) in add) {
+            val cur = into[k]
+            if (cur == null) {
+                into[k] = v.copyOf()
+            } else {
+                into[k] = floatArrayOf(cur[0] + v[0], cur[1] + v[1], cur[2] + v[2])
+            }
+        }
+    }
+
     // T = symmetric T-pose reference (spinning); V = raw authored pose;
-    // default = battle stance. Base values: size 3 = Euler (rx,ry,rz),
-    // size 4 = axis-angle (deg, x, y, z). Trim values: Euler, applied after
-    // the base rotation at the same pivot; live adb overrides land in trim.
+    // default = battle stance = T-pose + STANCE_OFFSETS. Base values: size 3
+    // = Euler (rx,ry,rz), size 4 = axis-angle. Trim values: Euler, applied
+    // BEFORE the base rotation at the same pivot (model-frame semantics).
     private fun poseLayers(): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
         Calibration.tPose -> {
-            val trim = HashMap(TPOSE_TRIM)
-            trim["HEAD"] = floatArrayOf(-6f, Calibration.headYaw, 0f)
-            trim["PELVIS"] = floatArrayOf(0f, Calibration.pelvisYaw, 0f)
-            trim["FOOT_A"] = floatArrayOf(0f, Calibration.footAYaw, 0f)
-            trim["FOOT_B"] = floatArrayOf(
-                Calibration.footBPitch, Calibration.footBYaw, Calibration.footBRoll,
-            )
+            val trim = tposeTrims()
             trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
         Calibration.testPose -> emptyMap<String, FloatArray>() to emptyMap()
-        else -> STANCE to Calibration.stanceOverrides.toMap()
+        else -> {
+            val trim = tposeTrims()
+            sumInto(trim, STANCE_OFFSETS)
+            sumInto(trim, Calibration.stanceOverrides)
+            MOKUJIN_TPOSE to trim
+        }
     }
 
     private fun applyRigPose(frameTimeNanos: Long) {
@@ -355,7 +378,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Calibration.tPose && Calibration.paused -> 0f   // locked facing the camera
             Calibration.auto || Calibration.tPose ->
                 (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
-            else -> BASE_YAW_DEG * sim.facingF
+            else -> (BASE_YAW_DEG + STANCE_BODY_YAW) * sim.facingF
         }
         val dy = if (Calibration.testPose || Calibration.tPose) {
             0f

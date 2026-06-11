@@ -165,14 +165,13 @@ class InputMonitor {
         val isCalPause = event.keyCode == KeyEvent.KEYCODE_X
         val isCalPose = event.keyCode == KeyEvent.KEYCODE_V
         val isTPose = event.keyCode == KeyEvent.KEYCODE_T
-        val isTuneKey = Calibration.tPose && (
+        val isTuneKey =
             event.keyCode == KeyEvent.KEYCODE_G || event.keyCode == KeyEvent.KEYCODE_H ||
                 event.keyCode == KeyEvent.KEYCODE_B || event.keyCode == KeyEvent.KEYCODE_N ||
                 event.keyCode == KeyEvent.KEYCODE_Q || event.keyCode == KeyEvent.KEYCODE_W ||
                 event.keyCode == KeyEvent.KEYCODE_E || event.keyCode == KeyEvent.KEYCODE_R ||
                 event.keyCode == KeyEvent.KEYCODE_D || event.keyCode == KeyEvent.KEYCODE_F ||
                 event.keyCode == KeyEvent.KEYCODE_A || event.keyCode == KeyEvent.KEYCODE_S
-            )
         if (!isPad && !isDpad && label == null && !isStart && !isCalToggle && !isCalPause &&
             !isCalPose && !isTPose && !isTuneKey && event.keyCode !in BUTTON_NAMES
         ) return false
