@@ -95,7 +95,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "FARM_A" to floatArrayOf(0f, 95f, -100f),
         )
         const val STANCE_BODY_YAW = -22f
-        const val STANCE_ROOT_DZ = -0.12f   // hips pushed back (model -z)
         const val ANKLE_REST_Y = 0.083f     // ankle-ball height with sole flat
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
@@ -162,7 +161,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
 
     private var rig: List<GroupInstance> = emptyList()
     private val groupWorld = HashMap<String, FloatArray>()
-    private val refWorld = HashMap<String, FloatArray>()
     private val footComp = floatArrayOf(0f, 0f, 0f)
     private val rootM = FloatArray(16)
     private val m = FloatArray(16)
@@ -463,24 +461,22 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
 
         computeChains(angles, trims, tourSel, groupWorld)
 
-        // foot pin: horizontally, ankles stay where the STATIC stance puts
-        // them (idle displacement cancelled at the root); vertically, the
-        // ankle height is seated absolutely at the ankle-ball rest height,
-        // so the stance self-seats on the floor no matter how deep it gets
+        // foot seat + center, all ABSOLUTE: the ankle midpoint is cancelled
+        // at the root every frame — vertically onto the ankle-ball rest
+        // height (self-seating) and horizontally onto the char-space origin
+        // (self-centering: the ground dot IS the stance center by
+        // definition). Subsumes the old relative idle pin, and needs no
+        // second no-idle pose evaluation
         val inStance = !Calibration.tPose && !Calibration.testPose
         if (inStance) {
-            val (refAngles, refTrims) = poseLayers(tSec, includeIdle = false)
-            computeChains(refAngles, refTrims, -1, refWorld)
             val cur = FloatArray(3)
-            val ref = FloatArray(3)
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
             for (side in arrayOf("A", "B")) {
                 val ankle = rigPivot("FOOT_$side")
                 transformPoint(groupWorld["SHIN_$side"]!!, ankle, cur)
-                transformPoint(refWorld["SHIN_$side"]!!, ankle, ref)
-                footComp[0] += (cur[0] - ref[0]) / 2f
+                footComp[0] += cur[0] / 2f
                 footComp[1] += (cur[1] - ANKLE_REST_Y) / 2f
-                footComp[2] += (cur[2] - ref[2]) / 2f
+                footComp[2] += cur[2] / 2f
             }
         } else {
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
@@ -528,16 +524,26 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
         if (inStance) {
-            // hips-back shift + the foot pin (model-frame, render magnitude)
+            // absolute foot seat/center (model-frame, render magnitude);
+            // the old STANCE_ROOT_DZ hips-back shift is obsolete — any root
+            // z offset would just be cancelled by the centering
             Matrix.translateM(
                 m, 0,
                 -footComp[0] * modelScale,
                 -footComp[1] * modelScale,
-                STANCE_ROOT_DZ - footComp[2] * modelScale,
+                -footComp[2] * modelScale,
             )
         }
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
-        Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)
+        // bbox auto-centering only outside stance (tour/T-pose spins) — in
+        // stance the absolute ankle centering owns x/z, and leaving these in
+        // moved the stance ~6cm off the ground dot
+        Matrix.translateM(
+            m, 0,
+            if (inStance) 0f else modelOffX / modelScale,
+            modelOffY / modelScale,
+            if (inStance) 0f else modelOffZ / modelScale,
+        )
         System.arraycopy(m, 0, rootM, 0, 16)
         val tm = engine.transformManager
         tm.setTransform(tm.getInstance(a.root), m)
