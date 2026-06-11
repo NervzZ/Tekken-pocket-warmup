@@ -280,7 +280,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         } else {
             Calibration.autoStartNanos = 0L
             Calibration.pauseNanos = 0L
-            Calibration.paused = false
+            // paused doubles as the T-pose camera lock — only the tour resets it
+            if (!Calibration.tPose) Calibration.paused = false
             if (Calibration.display.value.isNotEmpty()) Calibration.display.value = ""
             -1
         }
