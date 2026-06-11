@@ -21,11 +21,14 @@ import kotlin.math.sin
 //               BUFFERED and chains gaplessly at frame 34; any other
 //               directional input after buffering invalidates the buffer.
 //   SIDESTEP_UP / SIDESTEP_DOWN — up/down tap; 24 frames circling the
-//               opponent (orbit arc). UNCANCELABLE for now (rules TBD).
-//   SIDEWALK_UP / SIDEWALK_DOWN — holding the direction when the sidestep
-//               ends (u,U / d,D) flows into a continuous strafe around the
-//               opponent until the hold releases. Free state: events fire
-//               straight out of it.
+//               opponent (orbit arc). CANCELABLE BY ANY OTHER MOVEMENT:
+//               back/forward (walk), down (duck), another up/down tap
+//               (fresh sidestep), backdash, dash. A MATCHING-direction
+//               hold outranks the duck: it means sidewalk.
+//   SIDEWALK_UP / SIDEWALK_DOWN — holding the direction from a sidestep
+//               (u,U / d,D) flows into a continuous strafe (entered
+//               seamlessly once the inside foot plants). Free state:
+//               anything cancels it; exits on release.
 //   CROUCH    — held down/down-back; a FREE state: ducks in ~7-8 frames,
 //               locks nothing (any event fires straight out of it), and
 //               exits the moment the hold releases.
@@ -118,7 +121,28 @@ class ArenaSim(private val movement: MovementState) {
                 }
             }
             MoveState.SIDESTEP_UP, MoveState.SIDESTEP_DOWN -> {
-                // uncancelable: all events are consumed and dropped
+                // cancelable by any other movement; a matching-direction
+                // hold means sidewalk (handled in the progress block) and
+                // outranks the duck
+                val holdMatches = (ssDir > 0f && movement.heldUp) ||
+                    (ssDir < 0f && movement.heldDown)
+                when {
+                    bdEvt -> {
+                        state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false
+                        ssProgress = -1f
+                    }
+                    dashEvt && dist > MIN_DIST + 0.01f -> {
+                        state = MoveState.DASH; dashT = 0f; dashMaintain = false
+                        ssProgress = -1f
+                    }
+                    ssUpEvt -> startSidestep(+1f)
+                    ssDownEvt -> startSidestep(-1f)
+                    holdMatches -> {}
+                    crouchHeld -> { state = MoveState.CROUCH; ssProgress = -1f }
+                    relDir == 1 -> { state = MoveState.WALK_F; ssProgress = -1f }
+                    relDir == -1 -> { state = MoveState.WALK_B; ssProgress = -1f }
+                    else -> {}
+                }
             }
             MoveState.DASH -> when {
                 // any other movement cancels the dash at any moment
@@ -140,10 +164,12 @@ class ArenaSim(private val movement: MovementState) {
                 }
                 ssUpEvt -> startSidestep(+1f)
                 ssDownEvt -> startSidestep(-1f)
-                crouchHeld -> state = MoveState.CROUCH
-                // sidewalk persists while its direction stays held
+                // sidewalk persistence MUST outrank the duck: holding down
+                // IS the sidewalk-down input (crouching includes plain D —
+                // checked after, so down still ducks everything else)
                 state == MoveState.SIDEWALK_UP && movement.heldUp -> {}
                 state == MoveState.SIDEWALK_DOWN && movement.heldDown -> {}
+                crouchHeld -> state = MoveState.CROUCH
                 else -> state = when (relDir) {
                     1 -> MoveState.WALK_F
                     -1 -> MoveState.WALK_B
