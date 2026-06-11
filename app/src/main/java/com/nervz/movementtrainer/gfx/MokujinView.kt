@@ -114,6 +114,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val RUN_LEAN = 14f            // forward lean over the stance
         const val RUN_GUARD_UNFOLD = 28f    // forearm unfold: fists drop lower
         const val RUN_GUARD_LOOSEN = 6f     // slight upper-arm relax
+        const val JUMP_HEIGHT = 0.5f        // ballistic apex (world units)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -392,6 +393,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 sumInto(trim, backdashOffsets())
                 sumInto(trim, sidestepOffsets())
                 sumInto(trim, sidewalkOffsets())
+                sumInto(trim, jumpOffsets())
                 sumInto(trim, crouchOffsets())
             }
             sumInto(trim, Calibration.stanceOverrides)
@@ -492,10 +494,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     // the stance. Feet alternate — never both airborne, no root hop.
     private fun backdashOffsets(): Map<String, FloatArray> {
         val u = sim.bdProgress
-        if (u < 0f) {
-            animHopY = 0f
-            return emptyMap()
-        }
+        if (u < 0f) return emptyMap()
         // no brace phase: the stance is already poised on the lead foot, so
         // the push fires on frame 0 and the left foot is off near-instantly;
         // all foot action lives inside the f0-19 movement window, the
@@ -507,7 +506,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val liftA = bump(u, 0.02f, 0.28f)   // right foot steps back, grounded ~f10
         val liftB = bump(u, 0.26f, 0.56f)   // then the lead folds, lifts, plants
         val leanBd = bump(u, 0.00f, 0.52f)  // lean back held through the travel
-        animHopY = 0f
 
         val thighA = 6f * liftA
         val shinA = 22f * liftA
@@ -730,6 +728,34 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
         out["PELVIS"] = floatArrayOf(0f, -3f * dirX * lean, 0f)
         return out
+    }
+
+    // Jump (uncancelable, lands into crouch): ballistic root arc through the
+    // animHopY channel (added AFTER the foot seat so the body truly leaves
+    // the ground), legs tuck mid-flight, and ub/uf arch the torso slightly
+    // backward/forward with the drift. The landing compression is the crouch
+    // state blending in on touchdown.
+    private fun jumpOffsets(): Map<String, FloatArray> {
+        val u = sim.jumpProgress
+        if (u < 0f) {
+            animHopY = 0f
+            return emptyMap()
+        }
+        animHopY = JUMP_HEIGHT * 4f * u * (1f - u)
+        val tuck = bump(u, 0.12f, 0.88f)
+        val arch = bump(u, 0.10f, 0.90f) * sim.jumpDirF
+        val thigh = -34f * tuck
+        val shin = 56f * tuck
+        return mapOf(
+            "THIGH_A" to floatArrayOf(thigh, 0f, 0f),
+            "SHIN_A" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(thigh + shin) * 0.6f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(thigh, 0f, 0f),
+            "SHIN_B" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-(thigh + shin) * 0.6f, 0f, 0f),
+            "TORSO" to floatArrayOf(9f * arch, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f * arch, 0f, 0f),
+        )
     }
 
     // Sidewalk: continuous strafe while the sidestep's direction stays held

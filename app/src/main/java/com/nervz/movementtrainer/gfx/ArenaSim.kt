@@ -32,6 +32,10 @@ import kotlin.math.sin
 //   CROUCH    — held down/down-back; a FREE state: ducks in ~7-8 frames,
 //               locks nothing (any event fires straight out of it), and
 //               exits the moment the hold releases.
+//   JUMP      — any up-component held >= 10 frames (a sidestep tap releases
+//               within 8, so taps never jump). u = in place, ub = slight
+//               backward arc, uf = slight forward arc. UNCANCELABLE, and it
+//               lands into CROUCH with a short locked landing recovery.
 //   DASH      — double-tap forward; a 34-frame run, much faster than
 //               walking. A third forward tap (dash event mid-dash) ARMS
 //               maintain: holding that last forward keeps the run going
@@ -41,7 +45,7 @@ class ArenaSim(private val movement: MovementState) {
 
     enum class MoveState {
         IDLE, WALK_F, WALK_B, BACKDASH, SIDESTEP_UP, SIDESTEP_DOWN,
-        SIDEWALK_UP, SIDEWALK_DOWN, CROUCH, DASH,
+        SIDEWALK_UP, SIDEWALK_DOWN, CROUCH, DASH, JUMP,
     }
 
     var orbitAng = 0f; private set
@@ -62,6 +66,10 @@ class ArenaSim(private val movement: MovementState) {
     private var dashT = 0f
     private var dashMaintain = false
     private var runAmt = 0f
+    private var jumpT = 0f
+    private var jumpDir = 0f
+    private var upHoldT = 0f
+    private var landLock = 0f
 
     // outputs shared with the Filament layer
     @Volatile var camEyeX = 2.5f
@@ -81,6 +89,8 @@ class ArenaSim(private val movement: MovementState) {
     @Volatile var swPhase = 0f       // sidewalk stepping cycle (radians)
     @Volatile var swAmount = 0f      // 0..1 sidewalk anim blend
     @Volatile var swDir = 0f         // +1 up / -1 down
+    @Volatile var jumpProgress = -1f // jump 0..1, or -1 when inactive
+    @Volatile var jumpDirF = 0f      // +1 uf arc / 0 in place / -1 ub arc
     private var swAmt = 0f
 
     fun step(dt: Float) {
@@ -103,6 +113,9 @@ class ArenaSim(private val movement: MovementState) {
 
         val relDir = movement.heldX * facing   // +1 = toward the opponent
         val crouchHeld = movement.crouching
+        // continuous up-component hold time drives the jump trigger
+        upHoldT = if (movement.heldUpward) upHoldT + dt else 0f
+        if (landLock > 0f) landLock -= dt
 
         // ---- state transitions
         when (state) {
@@ -144,6 +157,9 @@ class ArenaSim(private val movement: MovementState) {
                     else -> {}
                 }
             }
+            MoveState.JUMP -> {
+                // uncancelable in any way: every event is dropped
+            }
             MoveState.DASH -> when {
                 // any other movement cancels the dash at any moment
                 bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
@@ -156,6 +172,8 @@ class ArenaSim(private val movement: MovementState) {
                 else -> {}
             }
             else -> when {
+                // landing recovery: stay crouched, events dropped
+                landLock > 0f -> state = MoveState.CROUCH
                 // IDLE / WALK / SIDEWALK / CROUCH are free states
                 bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
                 // no room to run: a dash can't start at the closest distance
@@ -169,6 +187,13 @@ class ArenaSim(private val movement: MovementState) {
                 // checked after, so down still ducks everything else)
                 state == MoveState.SIDEWALK_UP && movement.heldUp -> {}
                 state == MoveState.SIDEWALK_DOWN && movement.heldDown -> {}
+                // up-component held past the tap window = jump (u/ub/uf)
+                upHoldT >= JUMP_HOLD -> {
+                    state = MoveState.JUMP
+                    jumpT = 0f
+                    jumpDir = relDir.toFloat()
+                    jumpDirF = jumpDir
+                }
                 crouchHeld -> state = MoveState.CROUCH
                 else -> state = when (relDir) {
                     1 -> MoveState.WALK_F
@@ -235,6 +260,21 @@ class ArenaSim(private val movement: MovementState) {
             if (state == MoveState.SIDEWALK_UP || state == MoveState.SIDEWALK_DOWN) 1f else 0f
         swAmt += (swTarget - swAmt) * min(1f, dt * 7f)
         swAmount = swAmt
+        if (state == MoveState.JUMP) {
+            jumpT += dt
+            val u = (jumpT / JUMP_DUR).coerceAtMost(1f)
+            // uf drifts toward the opponent, ub away, u stays in place
+            dist -= JUMP_DRIFT * jumpDir / JUMP_DUR * dt
+            jumpProgress = u
+            if (jumpT >= JUMP_DUR) {
+                // lands in crouch with a short locked landing recovery
+                state = MoveState.CROUCH
+                landLock = LAND_LOCK
+                jumpProgress = -1f
+            }
+        } else {
+            jumpProgress = -1f
+        }
         if (state == MoveState.DASH) {
             dashT += dt
             speed = DASH_SPEED
@@ -353,6 +393,10 @@ class ArenaSim(private val movement: MovementState) {
                                             // (user: was half of a real step)
         const val SIDEWALK_SPEED = 1.7f     // brisk Tekken strafe, units / s
         const val SIDEWALK_STRIDE = 0.42f   // lateral units per step (cadence)
+        const val JUMP_HOLD = 10f / 60f     // up-hold frames to trigger (tap = 8)
+        const val JUMP_DUR = 48f / 60f      // airborne portion
+        const val JUMP_DRIFT = 0.35f        // ub/uf horizontal arc
+        const val LAND_LOCK = 12f / 60f     // locked crouch landing recovery
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         // speed raised with stride scaled to match: covers ground faster at
         // the SAME animation cadence (speed/stride unchanged, ~2.9 steps/s)

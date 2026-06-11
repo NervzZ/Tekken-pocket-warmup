@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class MovementState {
     @Volatile var heldX = 0          // physical: -1 = left, +1 = right
     @Volatile var heldUp = false     // straight up held (sidewalk / jump)
+    @Volatile var heldUpward = false // any up component held (u/ub/uf — jump)
     @Volatile var heldDown = false   // straight down held (sidewalk / crouch)
     @Volatile var crouching = false
     @Volatile var facing = 1         // P1 faces right (+1), P2 faces left (-1)
