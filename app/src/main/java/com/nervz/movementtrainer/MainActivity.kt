@@ -348,13 +348,13 @@ private fun HistoryList(monitor: InputMonitor, modifier: Modifier) {
                     }
                     Text(
                         "${row.frames.intValue}",
-                        color = DimText,
+                        color = Color(0xFFE2E8EE),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
                     )
                 }
                 HorizontalDivider(
-                    color = Color(0xFF1E242B),
+                    color = Color(0xFF5A646F),
                     thickness = 1.dp,
                     modifier = Modifier.width(116.dp),
                 )

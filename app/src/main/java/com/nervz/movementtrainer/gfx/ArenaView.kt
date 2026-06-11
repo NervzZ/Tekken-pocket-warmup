@@ -118,8 +118,8 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
 
         // ground-contact reference dots (round): character (char space
         // origin) and the orbit pivot — square blob shadow is gone
-        dot(0f, 0.03f, 0f, 0.15f, 0.91f, 0.20f, 0.23f, 0.6f)
-        dot(sim.facingF * sim.dist, 0.03f, 0f, 0.15f, 0.91f, 0.20f, 0.23f, 0.6f)
+        dot(0f, 0.03f, 0f, 0.105f, 1f, 0.13f, 0.16f, 0.95f)
+        dot(sim.facingF * sim.dist, 0.03f, 0f, 0.105f, 1f, 0.13f, 0.16f, 0.95f)
     }
 
     private fun part(
