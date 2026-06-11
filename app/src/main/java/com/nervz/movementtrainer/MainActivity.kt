@@ -9,6 +9,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -96,23 +98,37 @@ fun MonitorScreen(monitor: InputMonitor) {
                 Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
                     .pointerInput(Unit) {
                         detectTapGestures { monitor.clear() }
                     },
             ) {
-                HeaderRow(monitor)
-                Spacer(Modifier.height(6.dp))
+                HeaderRow(
+                    monitor,
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                )
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    HistoryList(monitor, Modifier.width(150.dp).fillMaxHeight())
-                    Spacer(Modifier.width(8.dp))
+                    HistoryList(
+                        monitor,
+                        Modifier.padding(start = 14.dp).width(150.dp).fillMaxHeight(),
+                    )
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         AndroidView(
                             factory = { ctx -> ArenaView(ctx, monitor.movement) },
                             modifier = Modifier.fillMaxSize(),
                         )
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .fillMaxHeight()
+                                .width(48.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFF101418), Color(0x00101418)),
+                                    ),
+                                ),
+                        )
                         Column(
-                            Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp),
+                            Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 12.dp),
                             horizontalAlignment = Alignment.End,
                         ) {
                             StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
@@ -127,8 +143,8 @@ fun MonitorScreen(monitor: InputMonitor) {
 }
 
 @Composable
-private fun HeaderRow(monitor: InputMonitor) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun HeaderRow(monitor: InputMonitor, modifier: Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             monitor.side.value,
             color = if (monitor.side.value == "P1") P1Color else P2Color,

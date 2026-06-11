@@ -294,13 +294,11 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val f = movement.facing.toFloat()
         // soft shadow under the character
         part(0f, 0.012f, 0f, 0f, 0f, 0f, 0.85f, 0.02f, 0.6f, 0.02f, 0.03f, 0.04f, 0.55f, lit = false)
-        // ghost opponent at the orbit center; clamped into frame and faded
-        // with range so it stays a readable reference during retreat
+        // red dot on the ground marking the orbit pivot; clamped into frame
+        // and faded with range
         val vis = min(dist, 2.2f)
         val fade = (2.6f / dist).coerceAtMost(1f)
-        part(f * vis, 0.85f, 0f, 0f, 0f, 0f, 0.42f, 1.7f, 0.42f, 0.55f, 0.62f, 0.72f, 0.13f * fade, lit = false)
-        part(f * vis, 1.78f, 0f, 0f, 0f, 0f, 0.24f, 0.24f, 0.24f, 0.55f, 0.62f, 0.72f, 0.16f * fade, lit = false)
-        part(f * vis, 0.012f, 0f, 0f, 0f, 0f, 0.7f, 0.02f, 0.55f, 0.02f, 0.03f, 0.04f, 0.4f * fade, lit = false)
+        part(f * vis, 0.014f, 0f, 0f, 45f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.55f * fade, lit = false)
     }
 
     // ---- mokujin ----
@@ -355,10 +353,10 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
             p.legBKnee += 10f
         }
 
-        p.legFKnee += 52f * c
-        p.legBKnee += 48f * c
-        p.legFSag += 22f * c
-        p.legBSag += -26f * c
+        p.legFKnee += 60f * c
+        p.legBKnee += 58f * c
+        p.legFSag += 30f * c
+        p.legBSag += 44f * c
         p.lean += 14f * c
 
         when (clip) {
@@ -379,8 +377,8 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
                     p.lean += -20f * (1f - e * 0.5f)
                     p.legFSag += 40f * (1f - e * 0.35f)
                     p.legFKnee += 4f
-                    p.legBSag += -30f * (1f - e * 0.3f)
-                    p.legBKnee += 34f * (1f - e)
+                    p.legBSag += -22f * (1f - e * 0.3f)
+                    p.legBKnee += 18f * (1f - e)
                     p.armFSag += -10f * arc
                     p.armBSag += 8f * arc
                 }
@@ -436,7 +434,7 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val l2 = 0.42f
         val kneeB = p.legBKnee * rad
         val sagB = p.legBSag * rad
-        val hipY = (l1 * cos(sagB) + l2 * cos(sagB + kneeB)) + p.rootY
+        val hipY = (l1 * cos(sagB) + l2 * cos(sagB - kneeB)) + p.rootY
 
         val chestY = hipY + 0.34f
         val shoulderY = hipY + 0.46f
@@ -460,9 +458,9 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         part(0.03f * f, headY, 0f, 0f, p.twist * f, p.lean * f * 0.5f, 0.21f, 0.24f, 0.21f, wr, wg, wb, 1f)
         part(0.03f * f + f * 0.10f, headY + 0.02f, -0.03f, 0f, p.twist * f, 0f, 0.05f, 0.07f, 0.09f, 0.28f, 0.18f, 0.10f, 1f)
 
-        // legs
-        limb(0.04f * f, hipY, -0.10f, l1, l2, 0.14f, p.legFSag * f, p.legFLat, p.legFKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
-        limb(-0.04f * f, hipY, 0.10f, l1, l2, 0.14f, p.legBSag * f, p.legBLat, p.legBKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
+        // legs — knees flex BACKWARD relative to the thigh (negative fold)
+        limb(0.04f * f, hipY, -0.10f, l1, l2, 0.14f, p.legFSag * f, p.legFLat, -p.legFKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
+        limb(-0.04f * f, hipY, 0.10f, l1, l2, 0.14f, p.legBSag * f, p.legBLat, -p.legBKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
 
         // arms with fists: positive elbow folds the forearm up-forward into guard
         limb(0.03f * f, shoulderY, -0.21f, 0.28f, 0.26f, 0.10f, p.armFSag * f, p.armFLat, p.armFElbow * f, 0f, wr, wg, wb, dr, dg, db, fist = true, fr = hr, fg = hg, fb = hb)

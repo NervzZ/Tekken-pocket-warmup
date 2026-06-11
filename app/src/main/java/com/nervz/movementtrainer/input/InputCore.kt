@@ -83,6 +83,14 @@ val KEYBOARD_TEKKEN = mapOf(
     KeyEvent.KEYCODE_I to "2",
     KeyEvent.KEYCODE_J to "3",
     KeyEvent.KEYCODE_K to "4",
+    KeyEvent.KEYCODE_1 to "1",
+    KeyEvent.KEYCODE_2 to "2",
+    KeyEvent.KEYCODE_3 to "3",
+    KeyEvent.KEYCODE_4 to "4",
+    KeyEvent.KEYCODE_NUMPAD_1 to "1",
+    KeyEvent.KEYCODE_NUMPAD_2 to "2",
+    KeyEvent.KEYCODE_NUMPAD_3 to "3",
+    KeyEvent.KEYCODE_NUMPAD_4 to "4",
 )
 
 // User-provided Tekken button-cluster icons; key = pressed buttons sorted, e.g. "12".
