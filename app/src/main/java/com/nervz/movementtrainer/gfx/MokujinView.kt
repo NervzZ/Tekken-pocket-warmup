@@ -770,19 +770,24 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private fun crouchdashOffsets(): Map<String, FloatArray> {
         val u = sim.cdProgress
         if (u < 0f) return emptyMap()
-        val ramp = (u / 0.8f).coerceAtMost(1f)
-        val lunge = bump(u, 0.00f, 0.55f)
-        val thigh = -32f * ramp - 8f * lunge
-        val shin = 58f * ramp
+        // a real LUNGE: lead leg drives deep forward, rear leg extends back,
+        // torso thrown into it — then it gathers into the crouch (full depth
+        // by u0.85). Amplitudes sized for the ~0.65 trim->world compression.
+        val lunge = bump(u, 0.00f, 0.60f)
+        val ramp = ((u - 0.25f) / 0.60f).coerceIn(0f, 1f)
+        val thighB = -45f * lunge - 32f * ramp
+        val shinB = 30f * lunge + 58f * ramp
+        val thighA = 20f * lunge - 32f * ramp
+        val shinA = -15f * lunge + 58f * ramp
         return mapOf(
-            "THIGH_A" to floatArrayOf(-32f * ramp, 0f, 0f),
-            "SHIN_A" to floatArrayOf(shin, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-(-32f * ramp + shin), 0f, 0f),
-            "THIGH_B" to floatArrayOf(thigh, 0f, 0f),
-            "SHIN_B" to floatArrayOf(shin, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-(thigh + shin), 0f, 0f),
-            "TORSO" to floatArrayOf(10f * ramp + 8f * lunge, 0f, 0f),
-            "HEAD" to floatArrayOf(-4f * ramp - 3f * lunge, 0f, 0f),
+            "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
+            "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(thighA + shinA) * 0.8f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(thighB, 0f, 0f),
+            "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.8f, 0f, 0f),
+            "TORSO" to floatArrayOf(18f * lunge + 10f * ramp, 0f, 0f),
+            "HEAD" to floatArrayOf(-6f * lunge - 4f * ramp, 0f, 0f),
         )
     }
 
