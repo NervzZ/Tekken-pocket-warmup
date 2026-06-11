@@ -39,6 +39,7 @@ object Calibration {
     @Volatile var footAYaw = 12f
     @Volatile var footBYaw = -14f
     @Volatile var footBPitch = 0f
+    @Volatile var footBRoll = 0f
     @Volatile var rootDy = 0f
     val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
@@ -260,7 +261,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             trim["HEAD"] = floatArrayOf(-6f, Calibration.headYaw, 0f)
             trim["PELVIS"] = floatArrayOf(0f, Calibration.pelvisYaw, 0f)
             trim["FOOT_A"] = floatArrayOf(0f, Calibration.footAYaw, 0f)
-            trim["FOOT_B"] = floatArrayOf(Calibration.footBPitch, Calibration.footBYaw, 0f)
+            trim["FOOT_B"] = floatArrayOf(
+                Calibration.footBPitch, Calibration.footBYaw, Calibration.footBRoll,
+            )
             trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
@@ -293,9 +296,10 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             if (!Calibration.tPose) Calibration.paused = false
             if (Calibration.tPose) {
                 Calibration.display.value =
-                    "head %.0f (G/H)  pelvis %.0f (B/N)  fA %.0f (Q/W)  fB %.0f (E/R)  fB-pitch %.0f (D/F)".format(
+                    "head %.0f  pelvis %.0f  fA %.0f  fB %.0f  fB-pitch %.0f (D/F)  fB-roll %.0f (A/S)".format(
                         Calibration.headYaw, Calibration.pelvisYaw,
-                        Calibration.footAYaw, Calibration.footBYaw, Calibration.footBPitch,
+                        Calibration.footAYaw, Calibration.footBYaw,
+                        Calibration.footBPitch, Calibration.footBRoll,
                     )
             } else if (Calibration.display.value.isNotEmpty()) {
                 Calibration.display.value = ""

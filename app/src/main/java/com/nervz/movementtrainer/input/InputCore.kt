@@ -170,7 +170,8 @@ class InputMonitor {
                 event.keyCode == KeyEvent.KEYCODE_B || event.keyCode == KeyEvent.KEYCODE_N ||
                 event.keyCode == KeyEvent.KEYCODE_Q || event.keyCode == KeyEvent.KEYCODE_W ||
                 event.keyCode == KeyEvent.KEYCODE_E || event.keyCode == KeyEvent.KEYCODE_R ||
-                event.keyCode == KeyEvent.KEYCODE_D || event.keyCode == KeyEvent.KEYCODE_F
+                event.keyCode == KeyEvent.KEYCODE_D || event.keyCode == KeyEvent.KEYCODE_F ||
+                event.keyCode == KeyEvent.KEYCODE_A || event.keyCode == KeyEvent.KEYCODE_S
             )
         if (!isPad && !isDpad && label == null && !isStart && !isCalToggle && !isCalPause &&
             !isCalPose && !isTPose && !isTuneKey && event.keyCode !in BUTTON_NAMES
@@ -209,6 +210,8 @@ class InputMonitor {
                     KeyEvent.KEYCODE_R -> Calibration.footBYaw += 2f
                     KeyEvent.KEYCODE_D -> Calibration.footBPitch -= 2f
                     KeyEvent.KEYCODE_F -> Calibration.footBPitch += 2f
+                    KeyEvent.KEYCODE_A -> Calibration.footBRoll -= 2f
+                    KeyEvent.KEYCODE_S -> Calibration.footBRoll += 2f
                 }
             }
             return true
