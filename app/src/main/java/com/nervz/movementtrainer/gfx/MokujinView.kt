@@ -630,16 +630,20 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
             // vertical ground contact = the LOWER ankle (the planted foot) —
             // averaging would sink the support foot whenever a walk/step
-            // anim lifts the other one
+            // anim lifts the other one. During a crouchdash the support is
+            // the LEAD (B) ankle BY DEFINITION (he slides on it) — the
+            // pushing rear leg extending must not steal the anchor
             var loY = Float.MAX_VALUE
+            var bY = 0f
             for (side in arrayOf("A", "B")) {
                 val ankle = rigPivot("FOOT_$side")
                 transformPoint(groupWorld["SHIN_$side"]!!, ankle, cur)
                 footComp[0] += cur[0] / 2f
                 if (cur[1] < loY) loY = cur[1]
+                if (side == "B") bY = cur[1]
                 footComp[2] += cur[2] / 2f
             }
-            footComp[1] = loY - ANKLE_REST_Y
+            footComp[1] = (if (sim.cdProgress >= 0f) bY else loY) - ANKLE_REST_Y
         } else {
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
         }
@@ -763,31 +767,31 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         )
     }
 
-    // Crouchdash (f,n,d,df): a forward slide sinking into the full crouch.
-    // The fold ramps to EXACTLY the crouch pose by u0.8 (the sim seeds
-    // crouchAmount on exit, so both the run-out and the b/f cancels hand
-    // over at matching depth); an early lunge leans the body into the slide.
+    // Crouchdash (f,n,d,df), user choreography: FULLY CROUCH FIRST (~6f),
+    // then the rear (A) leg pushes hard — extending backward — launching a
+    // slide carried on the planted lead (B) leg, all at full crouch depth.
+    // The pose at every point >= u0.2 is the crouch with only the rear-leg
+    // push deviation, so the CROUCH handoff (crouchAmt seeded 1) is exact.
     private fun crouchdashOffsets(): Map<String, FloatArray> {
         val u = sim.cdProgress
         if (u < 0f) return emptyMap()
-        // a real LUNGE: lead leg drives deep forward, rear leg extends back,
-        // torso thrown into it — then it gathers into the crouch (full depth
-        // by u0.85). Amplitudes sized for the ~0.65 trim->world compression.
-        val lunge = bump(u, 0.00f, 0.60f)
-        val ramp = ((u - 0.25f) / 0.60f).coerceIn(0f, 1f)
-        val thighB = -45f * lunge - 32f * ramp
-        val shinB = 30f * lunge + 58f * ramp
-        val thighA = 20f * lunge - 32f * ramp
-        val shinA = -15f * lunge + 58f * ramp
+        val ramp = (u / 0.20f).coerceAtMost(1f)   // sink to FULL crouch fast
+        val pushA = bump(u, 0.15f, 0.70f)         // rear-leg drive
+        val thighB = -32f * ramp                  // lead leg: crouch, planted,
+        val shinB = 58f * ramp                    // never lifts — he slides on it
+        // rear leg drives back as a TRAIL: extends behind with the toe
+        // dragging, kept shallow enough never to reach below the lead ankle
+        val thighA = -32f * ramp + 30f * pushA
+        val shinA = 58f * ramp - 15f * pushA
         return mapOf(
             "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
             "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-(thighA + shinA) * 0.8f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(thighA + shinA) * 0.7f + 10f * pushA, 0f, 0f),
             "THIGH_B" to floatArrayOf(thighB, 0f, 0f),
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.8f, 0f, 0f),
-            "TORSO" to floatArrayOf(18f * lunge + 10f * ramp, 0f, 0f),
-            "HEAD" to floatArrayOf(-6f * lunge - 4f * ramp, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-(thighB + shinB), 0f, 0f),
+            "TORSO" to floatArrayOf(10f * ramp + 5f * pushA, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f * ramp - 2f * pushA, 0f, 0f),
         )
     }
 

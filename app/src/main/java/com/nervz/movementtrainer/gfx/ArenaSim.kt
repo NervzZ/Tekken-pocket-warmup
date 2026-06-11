@@ -424,9 +424,11 @@ class ArenaSim(private val movement: MovementState) {
         return 1f - k * k * k
     }
 
-    // crouchdash slide fraction: same front-loaded ease-out
+    // crouchdash slide fraction: nothing while sinking into the crouch
+    // (first ~15%), then a front-loaded ease-out as the rear leg pushes
     private fun cdDisp(u: Float): Float {
-        val k = 1f - u
+        if (u < 0.15f) return 0f
+        val k = 1f - (u - 0.15f) / 0.85f
         return 1f - k * k * k
     }
 
