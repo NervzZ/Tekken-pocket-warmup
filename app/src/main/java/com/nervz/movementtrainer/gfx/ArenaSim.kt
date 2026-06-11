@@ -424,11 +424,10 @@ class ArenaSim(private val movement: MovementState) {
         return 1f - k * k * k
     }
 
-    // crouchdash slide fraction: nothing while sinking into the crouch
-    // (first ~15%), then a front-loaded ease-out as the rear leg pushes
+    // crouchdash slide fraction: the push (and motion) starts WITH the sink
     private fun cdDisp(u: Float): Float {
-        if (u < 0.15f) return 0f
-        val k = 1f - (u - 0.15f) / 0.85f
+        if (u < 0.04f) return 0f
+        val k = 1f - (u - 0.04f) / 0.96f
         return 1f - k * k * k
     }
 
@@ -458,7 +457,7 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDEWALK_SPEED = 1.7f     // brisk Tekken strafe, units / s
         const val SIDEWALK_STRIDE = 0.42f   // lateral units per step (cadence)
         const val CD_DUR = 28f / 60f        // crouchdash slide duration
-        const val CD_DIST = 0.8f            // forward lunge distance
+        const val CD_DIST = 1.0f            // forward slide distance
         const val JUMP_HOLD = 10f / 60f     // up-hold frames to trigger (tap = 8)
         const val JUMP_DUR = 30f / 60f      // ~6f grounded dip + ~24f airborne
         const val JUMP_DRIFT = 0.85f        // ub/uf horizontal arc (a real leap)
