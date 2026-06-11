@@ -697,10 +697,13 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val bias = -5f * dirX * lean
         val pushZ = -6f * dirX * push           // outside leg angles out = drive
         val out = HashMap<String, FloatArray>()
-        out["THIGH_$outside"] = floatArrayOf(0f, 0f, bias + pushZ)
-        out["SHIN_$outside"] = floatArrayOf(-4f * push + 5f * gather, 0f, 0f)
+        // this leg pushes early, then takes a REAL step of its own in the
+        // second half (a 5deg "gather" read as sliding on screen — both
+        // feet must visibly lift off and replant, user spec)
+        out["THIGH_$outside"] = floatArrayOf(-4f * gather, 0f, bias + pushZ)
+        out["SHIN_$outside"] = floatArrayOf(-4f * push + 19f * gather, 0f, 0f)
         out["FOOT_$outside"] = floatArrayOf(
-            (4f * push - 5f * gather) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
+            (4f * push - 14f * gather) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
         )
         // the inside leg STEPS (it used to stay planted and slide): knee
         // fold lifts the foot while the body travels, grounding it mid-step
