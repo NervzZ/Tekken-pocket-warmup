@@ -73,8 +73,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             // the leg base doesn't convert stance depth into foot crossing
             "PELVIS" to floatArrayOf(0f, 12f, 0f),
             "THIGH_B" to floatArrayOf(-16f, 0f, 20f),
-            "SHIN_B" to floatArrayOf(14f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(0f, 0f, -20f),
+            "SHIN_B" to floatArrayOf(24f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-8f, 0f, -20f),
             "THIGH_A" to floatArrayOf(12f, 0f, -22f),
             "SHIN_A" to floatArrayOf(14f, 0f, 0f),
             "FOOT_A" to floatArrayOf(-24f, -20f, 22f),
@@ -84,7 +84,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "FARM_A" to floatArrayOf(0f, 95f, -100f),
         )
         const val STANCE_BODY_YAW = -22f
-        const val STANCE_ROOT_DY = -0.05f
+        const val STANCE_ROOT_DY = -0.09f
+        const val STANCE_ROOT_DZ = -0.05f   // hips pushed back (model -z)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -297,20 +298,51 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         }
     }
 
+    private var idleDy = 0f
+
+    // Idle layered on the stance: heavy breathing (slow, torso/arms/head)
+    // + knee-flex bob (the whole body rides the flex up and down).
+    private fun idleOffsets(tSec: Double): Map<String, FloatArray> {
+        val bob = (1.0 - kotlin.math.cos(tSec * 2.0 * Math.PI * 0.85)).toFloat() / 2f
+        val breath = kotlin.math.sin(tSec * 2.0 * Math.PI * 0.30).toFloat()
+        val flex = 6f * bob
+        idleDy = -0.020f * bob
+        return mapOf(
+            "SHIN_B" to floatArrayOf(flex, 0f, 0f),
+            "SHIN_A" to floatArrayOf(flex * 0.8f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(-flex * 0.45f, 0f, 0f),
+            "THIGH_A" to floatArrayOf(-flex * 0.35f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-flex * 0.5f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-flex * 0.45f, 0f, 0f),
+            "TORSO" to floatArrayOf(1.8f * breath + flex * 0.25f, 0f, 0f),
+            "HEAD" to floatArrayOf(-1.2f * breath, 0f, 0f),
+            "UARM_B" to floatArrayOf(0f, 0f, 2.2f * breath),
+            "UARM_A" to floatArrayOf(0f, 0f, -2.2f * breath),
+            "FARM_B" to floatArrayOf(0f, 0f, 1.5f * breath),
+            "FARM_A" to floatArrayOf(0f, 0f, -1.5f * breath),
+        )
+    }
+
     // T = symmetric T-pose reference (spinning); V = raw authored pose;
-    // default = battle stance = T-pose + STANCE_OFFSETS. Base values: size 3
-    // = Euler (rx,ry,rz), size 4 = axis-angle. Trim values: Euler, applied
-    // BEFORE the base rotation at the same pivot (model-frame semantics).
-    private fun poseLayers(): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
+    // default = battle stance = T-pose + STANCE_OFFSETS + idle animation.
+    // Base values: size 3 = Euler (rx,ry,rz), size 4 = axis-angle. Trim
+    // values: Euler, applied BEFORE the base rotation at the same pivot
+    // (model-frame semantics).
+    private fun poseLayers(tSec: Double): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
         Calibration.tPose -> {
+            idleDy = 0f
             val trim = tposeTrims()
             trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
-        Calibration.testPose -> emptyMap<String, FloatArray>() to emptyMap()
+        Calibration.testPose -> {
+            idleDy = 0f
+            emptyMap<String, FloatArray>() to emptyMap()
+        }
         else -> {
             val trim = tposeTrims()
             sumInto(trim, STANCE_OFFSETS)
+            sumInto(trim, idleOffsets(tSec))
             sumInto(trim, Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
@@ -318,7 +350,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
 
     private fun applyRigPose(frameTimeNanos: Long) {
         val tm = engine.transformManager
-        val (angles, trims) = poseLayers()
+        val (angles, trims) = poseLayers(frameTimeNanos / 1_000_000_000.0)
 
         val tourSel = if (Calibration.auto) {
             if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
@@ -415,14 +447,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
             else -> (BASE_YAW_DEG + STANCE_BODY_YAW) * sim.facingF
         }
-        val dy = if (Calibration.testPose || Calibration.tPose) {
-            0f
-        } else {
-            STANCE_ROOT_DY + Calibration.rootDy
-        }
+        val inStance = !Calibration.testPose && !Calibration.tPose
+        val dy = if (inStance) STANCE_ROOT_DY + Calibration.rootDy + idleDy else 0f
         Matrix.setIdentityM(m, 0)
         Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
+        if (inStance) Matrix.translateM(m, 0, 0f, 0f, STANCE_ROOT_DZ)
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
         Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)
         val tm = engine.transformManager
