@@ -292,7 +292,8 @@ class ArenaSim(private val movement: MovementState) {
         const val BACKDASH_DIST = 0.60f     // arena units covered
         const val BD_MOVE_SPLIT = 0.88f     // share of distance in frames 0-19
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
-        const val SIDESTEP_ARC = 0.42f      // lateral units circled per step
+        const val SIDESTEP_ARC = 0.84f      // lateral units circled per step
+                                            // (user: was half of a real step)
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         // speed raised with stride scaled to match: covers ground faster at
         // the SAME animation cadence (speed/stride unchanged, ~2.9 steps/s)

@@ -663,6 +663,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             val z = rootM[2] * mp[0] + rootM[6] * mp[1] + rootM[10] * mp[2] + rootM[14]
             sb.append("  %-9s (%6.3f, %6.3f, %6.3f)\n".format(label, x, y, z))
         }
+        sb.append(
+            "  sim: state=%s ssDir=%.0f facing=%.0f ssU=%.2f bdU=%.2f run=%.2f\n".format(
+                sim.state, sim.ssDir, sim.facingF, sim.ssProgress, sim.bdProgress,
+                sim.runAmount,
+            ),
+        )
         android.util.Log.i("PoseProbe", sb.toString())
     }
 
@@ -678,9 +684,14 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val dirX = sim.ssDir * sim.facingF      // model +x = char's left
         val lean = bump(u, 0.00f, 0.55f)        // upper body leads
         val push = bump(u, 0.05f, 0.50f)        // outside-leg drive
-        val gather = bump(u, 0.45f, 0.95f)      // feet join the destination
-        val outside = if (dirX > 0f) "A" else "B"
-        val inside = if (dirX > 0f) "B" else "A"
+        val inStep = bump(u, 0.00f, 0.50f)      // inside foot: lifts on frame
+                                                // ONE, replants at destination
+        val gather = bump(u, 0.45f, 0.95f)      // outside foot joins last
+        // side assignment CALIBRATED BY PROBE, not derived: with the naive
+        // mapping the runtime folded the wrong (away-from-destination) foot
+        // in both directions — ssup must lift the background foot (B in P1)
+        val outside = if (dirX > 0f) "B" else "A"
+        val inside = if (dirX > 0f) "A" else "B"
         // both-thigh bias: feet held away from the step side -> the
         // centering shifts the BODY toward it ahead of the feet
         val bias = -5f * dirX * lean
@@ -691,8 +702,11 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         out["FOOT_$outside"] = floatArrayOf(
             (4f * push - 5f * gather) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
         )
-        out["THIGH_$inside"] = floatArrayOf(0f, 0f, bias)
-        out["FOOT_$inside"] = floatArrayOf(0f, 0f, -bias * 0.8f)
+        // the inside leg STEPS (it used to stay planted and slide): knee
+        // fold lifts the foot while the body travels, grounding it mid-step
+        out["THIGH_$inside"] = floatArrayOf(-5f * inStep, 0f, bias)
+        out["SHIN_$inside"] = floatArrayOf(20f * inStep, 0f, 0f)
+        out["FOOT_$inside"] = floatArrayOf(-15f * inStep * 0.6f, 0f, -bias * 0.8f)
         out["TORSO"] = floatArrayOf(0f, 3f * dirX * lean, -5f * dirX * lean)
         out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
         out["PELVIS"] = floatArrayOf(0f, -3f * dirX * lean, 0f)
