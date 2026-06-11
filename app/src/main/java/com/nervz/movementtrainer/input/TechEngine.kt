@@ -41,6 +41,7 @@ class TechEngine(private val movement: MovementState) {
     private var dash = DSH.IDLE
     private var firedB = false   // backdash fired on the OPEN of the final b
     private var firedF = false   // dash fired on the OPEN of the final f
+    private var firedDF = false  // crouchdash fired on the OPEN of the df
 
     // Called when a new input state OPENS. Sequence completions fire on the
     // PRESS of the final input — a held last back is still a backdash
@@ -59,6 +60,12 @@ class TechEngine(private val movement: MovementState) {
         if (d == Direction.F && dash == DSH.N1) {
             movement.dashes.incrementAndGet()
             firedF = true
+        }
+        // crouchdash slides the moment the df lands (f,n,d,DF — df may be held)
+        if (d == Direction.DF && w == W.D) {
+            wdStreak.intValue++
+            movement.crouchDashes.incrementAndGet()
+            firedDF = true
         }
     }
 
@@ -94,6 +101,7 @@ class TechEngine(private val movement: MovementState) {
         // open-fire flags live exactly from a state's open to its close
         firedB = false
         firedF = false
+        firedDF = false
     }
 
     private fun logical(d: Direction): Direction = if (!p2) d else when (d) {
@@ -181,9 +189,11 @@ class TechEngine(private val movement: MovementState) {
                 else -> wFail(d, quick)
             }
             W.FN -> if (d == Direction.D && quick) W.D else wFail(d, quick)
-            W.D -> if (d == Direction.DF && frames <= dfHold) {
-                wdStreak.intValue++
-                movement.crouchDashes.incrementAndGet()
+            W.D -> if (d == Direction.DF && (frames <= dfHold || firedDF)) {
+                if (!firedDF) {
+                    wdStreak.intValue++
+                    movement.crouchDashes.incrementAndGet()
+                }
                 W.DF
             } else wFail(d, quick)
             W.DF -> when {

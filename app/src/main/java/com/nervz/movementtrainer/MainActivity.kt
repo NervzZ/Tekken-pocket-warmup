@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                         "ssup" -> monitor.movement.sidestepsUp.incrementAndGet()
                         "ssdown" -> monitor.movement.sidestepsDown.incrementAndGet()
                         "dash" -> monitor.movement.dashes.incrementAndGet()
+                        "cd" -> monitor.movement.crouchDashes.incrementAndGet()
                     }
                 }
             },

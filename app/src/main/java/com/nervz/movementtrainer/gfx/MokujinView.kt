@@ -394,6 +394,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 sumInto(trim, sidestepOffsets())
                 sumInto(trim, sidewalkOffsets())
                 sumInto(trim, jumpOffsets())
+                sumInto(trim, crouchdashOffsets())
                 sumInto(trim, crouchOffsets())
             }
             sumInto(trim, Calibration.stanceOverrides)
@@ -759,6 +760,29 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "FOOT_B" to floatArrayOf(-(thigh + shin) * 0.6f, 0f, 0f),
             "TORSO" to floatArrayOf(6f * dip + 16f * arch, 0f, 0f),
             "HEAD" to floatArrayOf(-2f * dip - 7f * arch, 0f, 0f),
+        )
+    }
+
+    // Crouchdash (f,n,d,df): a forward slide sinking into the full crouch.
+    // The fold ramps to EXACTLY the crouch pose by u0.8 (the sim seeds
+    // crouchAmount on exit, so both the run-out and the b/f cancels hand
+    // over at matching depth); an early lunge leans the body into the slide.
+    private fun crouchdashOffsets(): Map<String, FloatArray> {
+        val u = sim.cdProgress
+        if (u < 0f) return emptyMap()
+        val ramp = (u / 0.8f).coerceAtMost(1f)
+        val lunge = bump(u, 0.00f, 0.55f)
+        val thigh = -32f * ramp - 8f * lunge
+        val shin = 58f * ramp
+        return mapOf(
+            "THIGH_A" to floatArrayOf(-32f * ramp, 0f, 0f),
+            "SHIN_A" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(-32f * ramp + shin), 0f, 0f),
+            "THIGH_B" to floatArrayOf(thigh, 0f, 0f),
+            "SHIN_B" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-(thigh + shin), 0f, 0f),
+            "TORSO" to floatArrayOf(10f * ramp + 8f * lunge, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f * ramp - 3f * lunge, 0f, 0f),
         )
     }
 
