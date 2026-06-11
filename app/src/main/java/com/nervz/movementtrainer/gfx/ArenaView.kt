@@ -15,6 +15,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.min
+import kotlin.math.round
 import kotlin.math.sin
 
 class ArenaView(context: Context, movement: MovementState) : GLSurfaceView(context) {
@@ -25,16 +26,20 @@ class ArenaView(context: Context, movement: MovementState) : GLSurfaceView(conte
     }
 }
 
-// Tekken-practice-style scene. The wooden mannequin stays centered; the floor
-// grid scrolls in BOTH axes (x = forward/back travel, z = sidestep depth), so
-// movement reads like the in-game camera following the character. Quarter-view
-// camera avoids the flat "perfect profile" look.
+// Tekken-style movement scene built on an ORBIT model: the character keeps a
+// distance + orbit angle around an invisible opponent (shown as a ghost
+// pillar). Forward/back changes the distance, sidesteps/sidewalks move along
+// the circle — the grid rotates and slides exactly like the in-game camera.
+// The character itself stays at the origin in a quarter view.
 class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Renderer {
 
     private var program = 0
     private var aPos = 0
+    private var aNormal = 0
     private var uMvp = 0
+    private var uModel = 0
     private var uColor = 0
+    private var uLit = 0
 
     private lateinit var cube: FloatBuffer
     private lateinit var grid: FloatBuffer
@@ -46,15 +51,16 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
     private val vp = FloatArray(16)
     private val mvp = FloatArray(16)
 
-    // ---- simulation ----
-    private var px = 0f
-    private var pz = 0f
+    // ---- simulation: orbit around the opponent ----
+    private var orbitAng = 0f
+    private var dist = 3.4f
     private var vImpulse = 0f
     private var zImpulse = 0f
     private var zWalk = 0f
     private var crouch = 0f
     private var walkPhase = 0f
     private var sidePhase = 0f
+    private var breath = 0f
     private var time = 0f
     private var lastNanos = 0L
 
@@ -67,20 +73,21 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
     private enum class Clip(val dur: Float) {
         NONE(0f),
-        BACKDASH(0.38f),
+        BACKDASH(0.40f),
         CANCELDIP(0.14f),
         CROUCHDASH(0.42f),
-        SIDESTEP_UP(0.30f),
-        SIDESTEP_DOWN(0.30f),
+        SIDESTEP_UP(0.32f),
+        SIDESTEP_DOWN(0.32f),
         JUMP(0.62f),
     }
 
     private var clip = Clip.NONE
     private var clipT = 0f
     private var lastSsTime = -10f
-    private var sidewalk = 0          // -1 toward camera, +1 into screen, 0 off
+    private var sidewalk = 0
     private var heldUpStart = -1f
     private var jumpArmed = true
+    private var camX = 1.5f
 
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.063f, 0.078f, 0.094f, 1f)
@@ -90,13 +97,26 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
         val vs = """
             attribute vec3 aPos;
+            attribute vec3 aNormal;
             uniform mat4 uMvp;
-            void main() { gl_Position = uMvp * vec4(aPos, 1.0); }
+            uniform mat4 uModel;
+            varying vec3 vN;
+            void main() {
+                gl_Position = uMvp * vec4(aPos, 1.0);
+                vN = (uModel * vec4(aNormal, 0.0)).xyz;
+            }
         """
         val fs = """
             precision mediump float;
             uniform vec4 uColor;
-            void main() { gl_FragColor = uColor; }
+            uniform float uLit;
+            varying vec3 vN;
+            void main() {
+                vec3 n = normalize(vN);
+                float diff = max(dot(n, normalize(vec3(0.45, 0.8, 0.65))), 0.0);
+                float light = mix(1.0, 0.42 + 0.62 * diff, uLit);
+                gl_FragColor = vec4(uColor.rgb * light, uColor.a);
+            }
         """
         program = GLES20.glCreateProgram().also {
             GLES20.glAttachShader(it, compile(GLES20.GL_VERTEX_SHADER, vs))
@@ -104,19 +124,21 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
             GLES20.glLinkProgram(it)
         }
         aPos = GLES20.glGetAttribLocation(program, "aPos")
+        aNormal = GLES20.glGetAttribLocation(program, "aNormal")
         uMvp = GLES20.glGetUniformLocation(program, "uMvp")
+        uModel = GLES20.glGetUniformLocation(program, "uModel")
         uColor = GLES20.glGetUniformLocation(program, "uColor")
+        uLit = GLES20.glGetUniformLocation(program, "uLit")
 
-        cube = floatBufferOf(*CUBE_VERTS)
+        cube = floatBufferOf(*buildCube())
         buildGrid()
-        Matrix.setLookAtM(view, 0, 2.7f, 2.3f, 10.3f, 0.3f, 1.0f, 0f, 0f, 1f, 0f)
         lastNanos = System.nanoTime()
     }
 
     override fun onSurfaceChanged(unused: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
         val aspect = width.toFloat() / height.toFloat()
-        Matrix.perspectiveM(proj, 0, 42f, aspect, 0.4f, 60f)
+        Matrix.perspectiveM(proj, 0, 42f, aspect, 0.4f, 80f)
     }
 
     override fun onDrawFrame(unused: GL10?) {
@@ -128,15 +150,18 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glUseProgram(program)
+        // camera leans toward the opponent so the ghost stays in frame
+        val f = movement.facing.toFloat()
+        val targetCamX = f * min(dist, 2.2f) * 0.5f
+        camX += (targetCamX - camX) * 0.04f
+        Matrix.setLookAtM(view, 0, camX + 2.5f, 2.4f, 11.2f, camX, 1.0f, 0f, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
 
         drawGrid()
+        drawShadowAndOpponent()
         drawCharacter()
     }
 
-    // Interrupt rules: a backdash is only broken early by the KBD cancel chain,
-    // a crouchdash only by the next crouchdash/backdash, sidesteps by anything,
-    // a jump never (you are airborne).
     private fun canStart(new: Clip): Boolean {
         if (clip == Clip.NONE) return true
         val t01 = if (clip.dur > 0f) clipT / clip.dur else 1f
@@ -176,7 +201,6 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
             seenSsDown++; zImpulse = 3.4f; lastSsTime = time; startClip(Clip.SIDESTEP_DOWN)
         }
 
-        // sidewalk: a sidestep followed shortly by holding the same vertical input
         sidewalk = when {
             movement.heldUp && (time - lastSsTime < 0.5f || sidewalk == 1) -> 1
             movement.heldDown && (time - lastSsTime < 0.5f || sidewalk == -1) -> -1
@@ -189,7 +213,6 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         }
         zWalk += (zTarget - zWalk) * min(1f, dt * 9f)
 
-        // jump: straight up held with no sidestep context
         if (movement.heldUp) {
             if (heldUpStart < 0f) heldUpStart = time
             if (jumpArmed && sidewalk == 0 && time - heldUpStart > 0.22f &&
@@ -213,16 +236,20 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val walkSpeed = if (heldX == facing) 1.8f else 1.1f
         val vx = heldX * walkSpeed * inClipDamp + vImpulse
         vImpulse *= exp(-dt * 6f)
-        px += vx * dt
 
-        pz += (zImpulse + zWalk) * dt
+        // orbit integration: vx (screen x) toward +facing = toward the opponent
+        dist -= vx * facing * dt
+        dist = dist.coerceIn(1.1f, 9.0f)
+        val vSide = zImpulse + zWalk
+        orbitAng += -vSide * dt / dist
         zImpulse *= exp(-dt * 8f)
 
         val crouchTarget = if (movement.crouching && sidewalk != -1) 1f else 0f
         crouch += (crouchTarget - crouch) * min(1f, dt * 12f)
 
-        walkPhase += abs(vx) * dt * 7f
-        sidePhase += abs(zImpulse + zWalk) * dt * 7f
+        breath = sin(time * 1.7f)
+        if (clip == Clip.NONE) walkPhase += abs(vx) * dt * 7f
+        sidePhase += abs(vSide) * dt * 7f
     }
 
     private fun envelope(): Float {
@@ -231,27 +258,58 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         return sin(t01 * PI.toFloat())
     }
 
+    // grid lines live at integer WORLD coordinates; the model matrix rotates
+    // the world so the opponent sits toward +facing*x, with the character at
+    // the origin. The patch is re-centered on the nearest integer cell, so the
+    // floor is seamless and infinite while it rotates around you mid-sidestep.
+    private fun worldRotationDeg(): Float {
+        val psi = if (movement.facing == 1) -(orbitAng + PI.toFloat()) else -orbitAng
+        return Math.toDegrees(psi.toDouble()).toFloat()
+    }
+
+    private fun charWorldX() = dist * cos(orbitAng)
+    private fun charWorldZ() = dist * sin(orbitAng)
+
     private fun drawGrid() {
-        val offX = -(((px % 1f) + 1f) % 1f)
-        val offZ = -(((pz % 1f) + 1f) % 1f)
+        val cx = charWorldX()
+        val cz = charWorldZ()
         Matrix.setIdentityM(model, 0)
-        Matrix.translateM(model, 0, offX, 0f, offZ)
+        Matrix.rotateM(model, 0, worldRotationDeg(), 0f, 1f, 0f)
+        Matrix.translateM(model, 0, round(cx) - cx, 0f, round(cz) - cz)
         Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(uModel, 1, false, model, 0)
+        GLES20.glUniform1f(uLit, 0f)
         GLES20.glUniform4f(uColor, 0.55f, 0.65f, 0.75f, 0.17f)
         GLES20.glEnableVertexAttribArray(aPos)
+        cube.position(0)
+        grid.position(0)
         GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, grid)
         GLES20.glLineWidth(2f)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, gridLineCount * 2)
         GLES20.glDisableVertexAttribArray(aPos)
     }
 
+    private fun drawShadowAndOpponent() {
+        val f = movement.facing.toFloat()
+        // soft shadow under the character
+        part(0f, 0.012f, 0f, 0f, 0f, 0f, 0.85f, 0.02f, 0.6f, 0.02f, 0.03f, 0.04f, 0.55f, lit = false)
+        // ghost opponent at the orbit center; clamped into frame and faded
+        // with range so it stays a readable reference during retreat
+        val vis = min(dist, 2.2f)
+        val fade = (2.6f / dist).coerceAtMost(1f)
+        part(f * vis, 0.85f, 0f, 0f, 0f, 0f, 0.42f, 1.7f, 0.42f, 0.55f, 0.62f, 0.72f, 0.13f * fade, lit = false)
+        part(f * vis, 1.78f, 0f, 0f, 0f, 0f, 0.24f, 0.24f, 0.24f, 0.55f, 0.62f, 0.72f, 0.16f * fade, lit = false)
+        part(f * vis, 0.012f, 0f, 0f, 0f, 0f, 0.7f, 0.02f, 0.55f, 0.02f, 0.03f, 0.04f, 0.4f * fade, lit = false)
+    }
+
     // ---- mokujin ----
 
     private class Pose {
         var rootY = 0f
-        var twist = 0f          // whole-body yaw, degrees
-        var lean = 0f           // torso sagittal lean, + = toward facing
+        var twist = 0f
+        var lean = 0f
+        var chestBreath = 0f
         var legFSag = 0f; var legFKnee = 0f; var legFLat = 0f
         var legBSag = 0f; var legBKnee = 0f; var legBLat = 0f
         var armFSag = 0f; var armFElbow = 0f; var armFLat = 0f
@@ -264,40 +322,39 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val p = pose
         val env = envelope()
         val c = crouch
-        val bob = sin(time * 2.1f) * 1.5f
 
-        // battle stance (facing-local sagittal angles, + = forward)
-        p.rootY = 0f
-        p.twist = -24f
-        p.lean = 3f + bob * 0.4f
-        p.legFSag = 16f; p.legFKnee = 20f; p.legFLat = -6f
-        p.legBSag = -14f; p.legBKnee = 16f; p.legBLat = 6f
-        p.armFSag = 42f; p.armFElbow = -98f; p.armFLat = -8f
-        p.armBSag = 22f; p.armBElbow = -105f; p.armBLat = 10f
+        // battle stance: quarter-turned, knees loaded, fists guarding in front
+        p.rootY = 0.012f * breath
+        p.twist = -32f
+        p.lean = 4f + 1.2f * breath
+        p.chestBreath = 0.035f * breath
+        p.legFSag = 18f; p.legFKnee = 14f; p.legFLat = -8f
+        p.legBSag = -20f; p.legBKnee = 24f; p.legBLat = 8f
+        p.armFSag = 32f + 3.5f * breath; p.armFElbow = 118f; p.armFLat = -16f
+        p.armBSag = 14f + 3f * breath; p.armBElbow = 128f; p.armBLat = 12f
 
-        // walk cycle on top of stance
-        val walkAmp = min(1f, abs(movement.heldX.toFloat()) + abs(vImpulse) * 0.3f)
+        val walkAmp = if (clip == Clip.NONE) min(1f, abs(movement.heldX.toFloat())) else 0f
         if (walkAmp > 0.05f) {
             val s = sin(walkPhase)
-            p.legFSag += s * 24f * walkAmp
-            p.legBSag += -s * 24f * walkAmp
-            p.legFKnee += (1f - s).coerceAtLeast(0f) * 10f * walkAmp
-            p.legBKnee += (1f + s).coerceAtLeast(0f) * 10f * walkAmp
-            p.armFSag += -s * 14f * walkAmp
-            p.armBSag += s * 14f * walkAmp
+            val lift = sin(walkPhase + PI.toFloat() / 2f)
+            p.legFSag += s * 26f * walkAmp
+            p.legBSag += -s * 26f * walkAmp
+            p.legFKnee += (lift).coerceAtLeast(0f) * 24f * walkAmp
+            p.legBKnee += (-lift).coerceAtLeast(0f) * 24f * walkAmp
+            p.armFSag += -s * 10f * walkAmp
+            p.armBSag += s * 10f * walkAmp
         }
 
-        // sidewalk cycle: legs swing laterally, body squares up to the camera
         if (abs(zWalk) > 0.1f) {
             val s = sin(sidePhase)
             val dir = if (zWalk < 0) 1f else -1f
-            p.twist += dir * 18f
-            p.legFLat += s * 20f * dir
-            p.legBLat += -s * 20f * dir
-            p.legFKnee += 8f; p.legBKnee += 8f
+            p.twist += dir * 16f
+            p.legFLat += s * 22f * dir
+            p.legBLat += -s * 22f * dir
+            p.legFKnee += 10f
+            p.legBKnee += 10f
         }
 
-        // crouch
         p.legFKnee += 52f * c
         p.legBKnee += 48f * c
         p.legFSag += 22f * c
@@ -306,48 +363,63 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
         when (clip) {
             Clip.BACKDASH -> {
-                p.lean += -16f * env
-                p.legFSag += 26f * env
-                p.legFKnee += 6f * env
-                p.legBSag += -18f * env
-                p.legBKnee += 22f * env
-                p.armFSag += -12f * env
-                p.rootY += 0.10f * env
+                // two phases: compress, then the hop-back glide with the front
+                // leg reaching forward — clearly not a walk cycle
+                val t01 = (clipT / clip.dur).coerceIn(0f, 1f)
+                if (t01 < 0.35f) {
+                    val e = t01 / 0.35f
+                    p.legFKnee += 26f * e
+                    p.legBKnee += 30f * e
+                    p.lean += -10f * e
+                    p.rootY += -0.05f * e
+                } else {
+                    val e = (t01 - 0.35f) / 0.65f
+                    val arc = sin(e * PI.toFloat())
+                    p.rootY += 0.11f * arc - 0.02f
+                    p.lean += -20f * (1f - e * 0.5f)
+                    p.legFSag += 40f * (1f - e * 0.35f)
+                    p.legFKnee += 4f
+                    p.legBSag += -30f * (1f - e * 0.3f)
+                    p.legBKnee += 34f * (1f - e)
+                    p.armFSag += -10f * arc
+                    p.armBSag += 8f * arc
+                }
             }
             Clip.CANCELDIP -> {
-                p.legFKnee += 30f * env
-                p.legBKnee += 28f * env
-                p.lean += 8f * env
-                p.rootY -= 0.05f * env
+                p.legFKnee += 36f * env
+                p.legBKnee += 34f * env
+                p.lean += 7f * env
+                p.rootY += -0.08f * env
             }
             Clip.CROUCHDASH -> {
-                p.lean += 24f * env
-                p.legFSag += 30f * env
-                p.legFKnee += 18f * env
-                p.legBSag += -24f * env
-                p.legBKnee += 6f * env
-                p.armFSag += 26f * env
-                p.armBSag += -14f * env
-                p.rootY -= 0.16f * env
+                val t01 = (clipT / clip.dur).coerceIn(0f, 1f)
+                val drive = sin(t01 * PI.toFloat())
+                p.lean += 26f * drive
+                p.rootY += -0.17f * drive
+                p.legFSag += 36f * drive
+                p.legFKnee += 26f * drive
+                p.legBSag += -34f * drive
+                p.legBKnee += 8f * drive
+                p.armFSag += 24f * drive
+                p.armBSag += -10f * drive
             }
             Clip.SIDESTEP_UP, Clip.SIDESTEP_DOWN -> {
                 val dir = if (clip == Clip.SIDESTEP_UP) 1f else -1f
-                p.twist += dir * 26f * env
-                p.legFLat += -dir * 22f * env
-                p.legBLat += dir * 14f * env
-                p.legFKnee += 10f * env
-                p.rootY += 0.05f * env
+                p.twist += dir * 40f * env
+                p.legFLat += -dir * 26f * env
+                p.legBLat += dir * 16f * env
+                p.legFKnee += 12f * env
+                p.rootY += 0.06f * env
             }
             Clip.JUMP -> {
                 val t = clipT
                 p.rootY += (3.4f * t - 5.6f * t * t).coerceAtLeast(0f)
-                val tuck = env
-                p.legFKnee += 55f * tuck
-                p.legBKnee += 60f * tuck
-                p.legFSag += 25f * tuck
-                p.legBSag += -20f * tuck
-                p.armFSag += 20f * tuck
-                p.armBSag += 14f * tuck
+                p.legFKnee += 55f * env
+                p.legBKnee += 60f * env
+                p.legFSag += 25f * env
+                p.legBSag += -20f * env
+                p.armFSag += 16f * env
+                p.armBSag += 12f * env
             }
             Clip.NONE -> {}
         }
@@ -362,43 +434,48 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
         val l1 = 0.45f
         val l2 = 0.42f
-        // support height from the back leg so feet stay near the floor
-        val kneeB = (p.legBKnee * rad)
-        val sagB = (p.legBSag * rad)
+        val kneeB = p.legBKnee * rad
+        val sagB = p.legBSag * rad
         val hipY = (l1 * cos(sagB) + l2 * cos(sagB + kneeB)) + p.rootY
 
-        val chestY = hipY + 0.40f
-        val headY = hipY + 0.80f
-        val shoulderY = hipY + 0.52f
+        val chestY = hipY + 0.34f
+        val shoulderY = hipY + 0.46f
+        val headY = hipY + 0.70f
 
-        // wood palette
-        val wr = 0.78f; val wg = 0.62f; val wb = 0.42f
-        val dr = 0.64f; val dg = 0.50f; val db = 0.33f
+        val wr = 0.79f; val wg = 0.63f; val wb = 0.43f
+        val dr = 0.62f; val dg = 0.48f; val db = 0.31f
+        val hr = 0.88f; val hg = 0.74f; val hb = 0.54f
 
-        // torso: hips + chest, slightly twisted toward camera
-        part(0f, hipY + 0.08f, 0f, 0f, p.twist * f, p.lean * f, 0.34f, 0.26f, 0.26f, dr, dg, db, 0.98f)
-        part(0.02f * f, chestY, 0f, 0f, p.twist * f, p.lean * f, 0.42f, 0.44f, 0.30f, wr, wg, wb, 0.98f)
+        // hips + chest (chest breathes)
+        part(0f, hipY + 0.06f, 0f, 0f, p.twist * f, p.lean * f, 0.27f, 0.20f, 0.20f, dr, dg, db, 1f)
+        part(
+            0.02f * f, chestY, 0f, 0f, p.twist * f, p.lean * f,
+            0.33f + p.chestBreath * 0.4f, 0.34f * (1f + p.chestBreath), 0.23f + p.chestBreath * 0.4f,
+            wr, wg, wb, 1f,
+        )
+        // shoulders
+        part(0.02f * f, shoulderY, -0.21f, 0f, p.twist * f, p.lean * f, 0.13f, 0.12f, 0.13f, dr, dg, db, 1f)
+        part(0.02f * f, shoulderY, 0.21f, 0f, p.twist * f, p.lean * f, 0.13f, 0.12f, 0.13f, dr, dg, db, 1f)
         // head + face mark
-        part(0.03f * f, headY, 0f, 0f, p.twist * f, p.lean * f * 0.5f, 0.24f, 0.26f, 0.24f, wr, wg, wb, 0.98f)
-        part(0.03f * f + f * 0.11f, headY + 0.02f, -0.04f, 0f, p.twist * f, 0f, 0.06f, 0.08f, 0.10f, 0.30f, 0.20f, 0.12f, 1f)
+        part(0.03f * f, headY, 0f, 0f, p.twist * f, p.lean * f * 0.5f, 0.21f, 0.24f, 0.21f, wr, wg, wb, 1f)
+        part(0.03f * f + f * 0.10f, headY + 0.02f, -0.03f, 0f, p.twist * f, 0f, 0.05f, 0.07f, 0.09f, 0.28f, 0.18f, 0.10f, 1f)
 
-        // legs (hip anchors offset along z by stance + facing twist)
-        limb(0.04f * f, hipY, -0.11f, l1, l2, 0.15f, p.legFSag * f, p.legFLat, p.legFKnee * f, 0f, wr, wg, wb, dr, dg, db)
-        limb(-0.04f * f, hipY, 0.11f, l1, l2, 0.15f, p.legBSag * f, p.legBLat, p.legBKnee * f, 0f, wr, wg, wb, dr, dg, db)
+        // legs
+        limb(0.04f * f, hipY, -0.10f, l1, l2, 0.14f, p.legFSag * f, p.legFLat, p.legFKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
+        limb(-0.04f * f, hipY, 0.10f, l1, l2, 0.14f, p.legBSag * f, p.legBLat, p.legBKnee * f, 0f, wr, wg, wb, dr, dg, db, fist = false, fr = 0f, fg = 0f, fb = 0f)
 
-        // arms (negative elbow = forearm folds forward/up into guard)
-        limb(0.04f * f, shoulderY, -0.27f, 0.30f, 0.28f, 0.11f, p.armFSag * f, p.armFLat, p.armFElbow * f, 0f, wr, wg, wb, dr, dg, db)
-        limb(-0.02f * f, shoulderY, 0.27f, 0.30f, 0.28f, 0.11f, p.armBSag * f, p.armBLat, p.armBElbow * f, 0f, wr, wg, wb, dr, dg, db)
+        // arms with fists: positive elbow folds the forearm up-forward into guard
+        limb(0.03f * f, shoulderY, -0.21f, 0.28f, 0.26f, 0.10f, p.armFSag * f, p.armFLat, p.armFElbow * f, 0f, wr, wg, wb, dr, dg, db, fist = true, fr = hr, fg = hg, fb = hb)
+        limb(0.01f * f, shoulderY, 0.21f, 0.28f, 0.26f, 0.10f, p.armBSag * f, p.armBLat, p.armBElbow * f, 0f, wr, wg, wb, dr, dg, db, fist = true, fr = hr, fg = hg, fb = hb)
     }
 
-    // Two-segment limb. Sagittal angles rotate about Z (0 = straight down,
-    // + = toward +x), lateral about X (+ = toward -z / into the screen).
     private fun limb(
         ax: Float, ay: Float, az: Float,
         len1: Float, len2: Float, thick: Float,
         sag1: Float, lat1: Float, sag2: Float, lat2: Float,
         r1: Float, g1: Float, b1: Float,
         r2: Float, g2: Float, b2: Float,
+        fist: Boolean, fr: Float, fg: Float, fb: Float,
     ) {
         val t1 = sag1 * rad
         val q1 = lat1 * rad
@@ -407,7 +484,7 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val d1z = -sin(q1)
         part(
             ax + d1x * len1 / 2f, ay + d1y * len1 / 2f, az + d1z * len1 / 2f,
-            lat1, 0f, sag1, thick, len1, thick, r1, g1, b1, 0.98f,
+            lat1, 0f, sag1, thick, len1, thick, r1, g1, b1, 1f,
         )
         val ex = ax + d1x * len1
         val ey = ay + d1y * len1
@@ -419,8 +496,14 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val d2z = -sin(q2)
         part(
             ex + d2x * len2 / 2f, ey + d2y * len2 / 2f, ez + d2z * len2 / 2f,
-            lat1 + lat2, 0f, sag1 + sag2, thick * 0.82f, len2, thick * 0.82f, r2, g2, b2, 0.98f,
+            lat1 + lat2, 0f, sag1 + sag2, thick * 0.82f, len2, thick * 0.82f, r2, g2, b2, 1f,
         )
+        if (fist) {
+            part(
+                ex + d2x * (len2 + 0.05f), ey + d2y * (len2 + 0.05f), ez + d2z * (len2 + 0.05f),
+                lat1 + lat2, 0f, sag1 + sag2, 0.12f, 0.12f, 0.12f, fr, fg, fb, 1f,
+            )
+        }
     }
 
     private fun part(
@@ -428,6 +511,7 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         rotX: Float, rotY: Float, rotZ: Float,
         sx: Float, sy: Float, sz: Float,
         r: Float, g: Float, b: Float, a: Float,
+        lit: Boolean = true,
     ) {
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, x, y, z)
@@ -437,24 +521,26 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         Matrix.scaleM(model, 0, sx, sy, sz)
         Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(uModel, 1, false, model, 0)
+        GLES20.glUniform1f(uLit, if (lit) 1f else 0f)
         GLES20.glUniform4f(uColor, r, g, b, a)
         GLES20.glEnableVertexAttribArray(aPos)
-        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, cube)
+        GLES20.glEnableVertexAttribArray(aNormal)
+        cube.position(0)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 24, cube)
+        cube.position(3)
+        GLES20.glVertexAttribPointer(aNormal, 3, GLES20.GL_FLOAT, false, 24, cube)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36)
         GLES20.glDisableVertexAttribArray(aPos)
+        GLES20.glDisableVertexAttribArray(aNormal)
+        cube.position(0)
     }
 
     private fun buildGrid() {
         val lines = ArrayList<Float>()
-        val zNear = 4.5f
-        val zFar = -9.5f
-        for (i in -15..15) {
-            lines.addAll(listOf(i.toFloat(), 0f, zNear, i.toFloat(), 0f, zFar))
-        }
-        var z = zNear
-        while (z >= zFar) {
-            lines.addAll(listOf(-15f, 0f, z, 15f, 0f, z))
-            z -= 1f
+        for (i in -16..16) {
+            lines.addAll(listOf(i.toFloat(), 0f, 16f, i.toFloat(), 0f, -16f))
+            lines.addAll(listOf(16f, 0f, i.toFloat(), -16f, 0f, i.toFloat()))
         }
         gridLineCount = lines.size / 6
         grid = floatBufferOf(*lines.toFloatArray())
@@ -474,19 +560,37 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
             .apply { position(0) }
 
     companion object {
-        private val CUBE_VERTS = floatArrayOf(
-            -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-            0.5f, 0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f,
-            0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f,
-            -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-        )
+        // interleaved pos(3) + normal(3), 36 vertices
+        private fun buildCube(): FloatArray {
+            val out = ArrayList<Float>(36 * 6)
+            fun face(n: FloatArray, v: Array<FloatArray>) {
+                val order = intArrayOf(0, 1, 2, 0, 2, 3)
+                for (i in order) {
+                    out.addAll(v[i].toList())
+                    out.addAll(n.toList())
+                }
+            }
+            val p = 0.5f
+            val m = -0.5f
+            face(floatArrayOf(1f, 0f, 0f), arrayOf(
+                floatArrayOf(p, m, m), floatArrayOf(p, p, m), floatArrayOf(p, p, p), floatArrayOf(p, m, p),
+            ))
+            face(floatArrayOf(-1f, 0f, 0f), arrayOf(
+                floatArrayOf(m, m, m), floatArrayOf(m, m, p), floatArrayOf(m, p, p), floatArrayOf(m, p, m),
+            ))
+            face(floatArrayOf(0f, 1f, 0f), arrayOf(
+                floatArrayOf(m, p, m), floatArrayOf(m, p, p), floatArrayOf(p, p, p), floatArrayOf(p, p, m),
+            ))
+            face(floatArrayOf(0f, -1f, 0f), arrayOf(
+                floatArrayOf(m, m, m), floatArrayOf(p, m, m), floatArrayOf(p, m, p), floatArrayOf(m, m, p),
+            ))
+            face(floatArrayOf(0f, 0f, 1f), arrayOf(
+                floatArrayOf(m, m, p), floatArrayOf(p, m, p), floatArrayOf(p, p, p), floatArrayOf(m, p, p),
+            ))
+            face(floatArrayOf(0f, 0f, -1f), arrayOf(
+                floatArrayOf(m, m, m), floatArrayOf(m, p, m), floatArrayOf(p, p, m), floatArrayOf(p, m, m),
+            ))
+            return out.toFloatArray()
+        }
     }
 }
