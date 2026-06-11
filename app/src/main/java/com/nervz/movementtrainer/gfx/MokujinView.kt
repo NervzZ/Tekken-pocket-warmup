@@ -33,6 +33,7 @@ object Calibration {
     @Volatile var auto = false
     @Volatile var paused = false
     @Volatile var testPose = false
+    @Volatile var tPose = false
     @Volatile var rootDy = 0f
     val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
@@ -233,13 +234,17 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         asset = a
     }
 
-    // V toggles back to the raw authored pose for comparison.
-    private fun poseAngles(): Map<String, FloatArray> = if (Calibration.testPose) {
-        emptyMap()
-    } else {
-        val merged = HashMap(STANCE)
-        merged.putAll(Calibration.stanceOverrides)
-        merged
+    // T = symmetric T-pose reference (spinning); V = raw authored pose;
+    // default = battle stance. Map values: size 3 = Euler (rx,ry,rz),
+    // size 4 = axis-angle (deg, x, y, z).
+    private fun poseAngles(): Map<String, FloatArray> = when {
+        Calibration.tPose -> MOKUJIN_TPOSE
+        Calibration.testPose -> emptyMap()
+        else -> {
+            val merged = HashMap(STANCE)
+            merged.putAll(Calibration.stanceOverrides)
+            merged
+        }
     }
 
     private fun applyRigPose(frameTimeNanos: Long) {
@@ -276,9 +281,13 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
             val a = angles[g.name]
             if (a != null) {
-                if (a[1] != 0f) Matrix.rotateM(local, 0, a[1], 0f, 1f, 0f)
-                if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
-                if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
+                if (a.size == 4) {
+                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], a[1], a[2], a[3])
+                } else {
+                    if (a[1] != 0f) Matrix.rotateM(local, 0, a[1], 0f, 1f, 0f)
+                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
+                    if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
+                }
             }
             if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
             Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
@@ -300,12 +309,16 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     }
 
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
-        val yaw = if (Calibration.auto) {
+        val yaw = if (Calibration.auto || Calibration.tPose) {
             (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
         } else {
             BASE_YAW_DEG * sim.facingF
         }
-        val dy = if (Calibration.testPose) 0f else STANCE_ROOT_DY + Calibration.rootDy
+        val dy = if (Calibration.testPose || Calibration.tPose) {
+            0f
+        } else {
+            STANCE_ROOT_DY + Calibration.rootDy
+        }
         Matrix.setIdentityM(m, 0)
         Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
