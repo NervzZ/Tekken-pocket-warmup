@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.hardware.input.InputManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -140,6 +141,24 @@ class MainActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (monitor.onMotion(event)) return true
         return super.dispatchGenericMotionEvent(event)
+    }
+
+    // the DualSense touchpad acts as a system mouse: capture the pointer
+    // (hides the cursor, events land in onCapturedPointerEvent and die) and
+    // swallow any mouse-sourced touches so a touchpad click can never
+    // tap-clear the history
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) window.decorView.requestPointerCapture()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE) ||
+            ev.isFromSource(InputDevice.SOURCE_TOUCHPAD)
+        ) {
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
     }
 }
 
