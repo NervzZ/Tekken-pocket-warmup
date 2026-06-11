@@ -180,14 +180,18 @@ class ArenaSim(private val movement: MovementState) {
             val uPrev = (ssT / SIDESTEP_DUR).coerceAtMost(1f)
             ssT += dt
             val u = (ssT / SIDESTEP_DUR).coerceAtMost(1f)
-            // arc around the opponent; up (+) circles one way, down the other
-            orbitAng += (ssDisp(u) - ssDisp(uPrev)) * SIDESTEP_ARC * ssDir / dist
+            // arc around the opponent; up (+) circles into the background —
+            // the world sense flips with the side (P2 was mirrored)
+            orbitAng += (ssDisp(u) - ssDisp(uPrev)) * SIDESTEP_ARC * ssDir * facingF / dist
             ssProgress = u
-            if (ssT >= SIDESTEP_DUR) {
-                // direction still held at the end -> flow into a sidewalk
+            // matching hold converts into the sidewalk as soon as the inside
+            // foot has planted (~u 0.5) — no waiting for the full 24 frames
+            val holdMatches = (ssDir > 0f && movement.heldUp) ||
+                (ssDir < 0f && movement.heldDown)
+            if (ssT >= SIDESTEP_DUR || (u >= 0.5f && holdMatches)) {
                 state = when {
-                    ssDir > 0f && movement.heldUp -> MoveState.SIDEWALK_UP
-                    ssDir < 0f && movement.heldDown -> MoveState.SIDEWALK_DOWN
+                    holdMatches && ssDir > 0f -> MoveState.SIDEWALK_UP
+                    holdMatches && ssDir < 0f -> MoveState.SIDEWALK_DOWN
                     else -> MoveState.IDLE
                 }
                 ssProgress = -1f
@@ -198,7 +202,7 @@ class ArenaSim(private val movement: MovementState) {
         if (state == MoveState.SIDEWALK_UP || state == MoveState.SIDEWALK_DOWN) {
             val dir = if (state == MoveState.SIDEWALK_UP) 1f else -1f
             swDir = dir
-            orbitAng += SIDEWALK_SPEED * dir / dist * dt
+            orbitAng += SIDEWALK_SPEED * dir * facingF / dist * dt
             swPhase += PI.toFloat() * SIDEWALK_SPEED / SIDEWALK_STRIDE * dt
         }
         val swTarget =
@@ -321,8 +325,8 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
         const val SIDESTEP_ARC = 0.84f      // lateral units circled per step
                                             // (user: was half of a real step)
-        const val SIDEWALK_SPEED = 0.9f     // continuous strafe, units / s
-        const val SIDEWALK_STRIDE = 0.30f   // lateral units per step (cadence)
+        const val SIDEWALK_SPEED = 1.7f     // brisk Tekken strafe, units / s
+        const val SIDEWALK_STRIDE = 0.42f   // lateral units per step (cadence)
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         // speed raised with stride scaled to match: covers ground faster at
         // the SAME animation cadence (speed/stride unchanged, ~2.9 steps/s)
