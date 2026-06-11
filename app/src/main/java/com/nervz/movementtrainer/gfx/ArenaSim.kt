@@ -263,8 +263,11 @@ class ArenaSim(private val movement: MovementState) {
         if (state == MoveState.JUMP) {
             jumpT += dt
             val u = (jumpT / JUMP_DUR).coerceAtMost(1f)
-            // uf drifts toward the opponent, ub away, u stays in place
-            dist -= JUMP_DRIFT * jumpDir / JUMP_DUR * dt
+            // uf drifts toward the opponent, ub away, u stays in place —
+            // only while AIRBORNE (the first ~20% is the grounded dip)
+            if (u >= 0.20f) {
+                dist -= JUMP_DRIFT * jumpDir / (JUMP_DUR * 0.80f) * dt
+            }
             jumpProgress = u
             if (jumpT >= JUMP_DUR) {
                 // lands in crouch with a short locked landing recovery
@@ -395,7 +398,7 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDEWALK_STRIDE = 0.42f   // lateral units per step (cadence)
         const val JUMP_HOLD = 10f / 60f     // up-hold frames to trigger (tap = 8)
         const val JUMP_DUR = 30f / 60f      // ~6f grounded dip + ~24f airborne
-        const val JUMP_DRIFT = 0.35f        // ub/uf horizontal arc
+        const val JUMP_DRIFT = 0.85f        // ub/uf horizontal arc (a real leap)
         const val LAND_LOCK = 12f / 60f     // locked crouch landing recovery
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         // speed raised with stride scaled to match: covers ground faster at
