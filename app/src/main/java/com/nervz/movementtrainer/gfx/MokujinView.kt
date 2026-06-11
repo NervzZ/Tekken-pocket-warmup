@@ -382,6 +382,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 sumInto(trim, idleOffsets(tSec))
                 sumInto(trim, walkOffsets())
                 sumInto(trim, backdashOffsets())
+                sumInto(trim, sidestepOffsets())
+                sumInto(trim, crouchOffsets())
             }
             sumInto(trim, Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
@@ -607,6 +609,53 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             sb.append("  %-9s (%6.3f, %6.3f, %6.3f)\n".format(label, x, y, z))
         }
         android.util.Log.i("PoseProbe", sb.toString())
+    }
+
+    // Sidestep (24f): the leg on the stepping side crosses first, the other
+    // follows; light body twist keeps the gaze on the opponent. The lateral
+    // travel itself is the orbit arc (grid rotates) — pose stays in place.
+    // Input up/down maps to a model-frame side via facing: up = +x for P1.
+    private fun sidestepOffsets(): Map<String, FloatArray> {
+        val u = sim.ssProgress
+        if (u < 0f) return emptyMap()
+        val dirX = sim.ssDir * sim.facingF      // model +x = char's left
+        val lift1 = bump(u, 0.00f, 0.42f)       // stepping leg
+        val lift2 = bump(u, 0.36f, 0.80f)       // trailing leg follows
+        val twist = bump(u, 0.05f, 0.75f)
+        val step = if (dirX > 0f) "B" else "A"  // leg on the stepping side
+        val trail = if (dirX > 0f) "A" else "B"
+        val out = HashMap<String, FloatArray>()
+        out["THIGH_$step"] = floatArrayOf(-3f * lift1, 0f, 11f * dirX * lift1)
+        out["SHIN_$step"] = floatArrayOf(14f * lift1, 0f, 0f)
+        out["FOOT_$step"] = floatArrayOf(-11f * lift1 * 0.6f, 0f, -9f * dirX * lift1)
+        out["THIGH_$trail"] = floatArrayOf(-2f * lift2, 0f, 9f * dirX * lift2)
+        out["SHIN_$trail"] = floatArrayOf(12f * lift2, 0f, 0f)
+        out["FOOT_$trail"] = floatArrayOf(-10f * lift2 * 0.6f, 0f, -7f * dirX * lift2)
+        out["TORSO"] = floatArrayOf(0f, 6f * dirX * twist, -2f * dirX * twist)
+        out["HEAD"] = floatArrayOf(0f, -5f * dirX * twist, 0f)
+        out["PELVIS"] = floatArrayOf(0f, -4f * dirX * twist, 0f)
+        return out
+    }
+
+    // Crouch: a fast duck (~3-4 frames via the sim's blend) — deep double
+    // knee fold with the soles kept flat, torso folding slightly over the
+    // knees; the ankle seat self-grounds the lowered hips. Free state: the
+    // amount just follows the sim blend in and out.
+    private fun crouchOffsets(): Map<String, FloatArray> {
+        val a = sim.crouchAmount
+        if (a < 0.01f) return emptyMap()
+        val thigh = -32f * a
+        val shin = 58f * a
+        return mapOf(
+            "THIGH_A" to floatArrayOf(thigh, 0f, 0f),
+            "SHIN_A" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(thigh + shin), 0f, 0f),
+            "THIGH_B" to floatArrayOf(thigh, 0f, 0f),
+            "SHIN_B" to floatArrayOf(shin, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-(thigh + shin), 0f, 0f),
+            "TORSO" to floatArrayOf(10f * a, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f * a, 0f, 0f),
+        )
     }
 
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {

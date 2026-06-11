@@ -103,6 +103,8 @@ class MainActivity : ComponentActivity() {
                     // (adb keyevents can't produce validator-legal timings)
                     when (intent.getStringExtra("event")) {
                         "backdash" -> monitor.movement.backdashes.incrementAndGet()
+                        "ssup" -> monitor.movement.sidestepsUp.incrementAndGet()
+                        "ssdown" -> monitor.movement.sidestepsDown.incrementAndGet()
                     }
                 }
             },
