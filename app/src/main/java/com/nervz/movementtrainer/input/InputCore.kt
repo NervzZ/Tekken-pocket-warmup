@@ -176,7 +176,9 @@ class InputMonitor {
             return true
         }
         if (isCalPause) {
-            if (down && Calibration.auto) Calibration.paused = !Calibration.paused
+            if (down && (Calibration.auto || Calibration.tPose)) {
+                Calibration.paused = !Calibration.paused
+            }
             return true
         }
         if (isCalPose) {

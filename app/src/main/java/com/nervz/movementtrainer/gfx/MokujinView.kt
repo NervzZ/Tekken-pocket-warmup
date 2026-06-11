@@ -77,10 +77,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
         // head has no ball joints to derive direction from; foot centroids are a
         // crude toe-direction proxy. Tuned live via adb, then baked here.
+        // ry SIGN: positive turns the face/toes toward the model's right —
+        // the head trim was negated for three iterations (user-caught).
         val TPOSE_TRIM: Map<String, FloatArray> = mapOf(
-            "HEAD" to floatArrayOf(-6f, -26f, 0f),
-            "FOOT_A" to floatArrayOf(0f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(0f, 0f, 0f),
+            "HEAD" to floatArrayOf(-6f, 28f, 0f),
+            "FOOT_A" to floatArrayOf(0f, 12f, 0f),
+            "FOOT_B" to floatArrayOf(0f, 12f, 0f),
         )
     }
 
@@ -327,10 +329,11 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     }
 
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
-        val yaw = if (Calibration.auto || Calibration.tPose) {
-            (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
-        } else {
-            BASE_YAW_DEG * sim.facingF
+        val yaw = when {
+            Calibration.tPose && Calibration.paused -> 0f   // locked facing the camera
+            Calibration.auto || Calibration.tPose ->
+                (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
+            else -> BASE_YAW_DEG * sim.facingF
         }
         val dy = if (Calibration.testPose || Calibration.tPose) {
             0f
