@@ -223,11 +223,17 @@ class ArenaSim(private val movement: MovementState) {
         runAmount = runAmt
 
         // ---- camera
+        // eye sits exactly behind the look target (no lateral offset): the
+        // view direction then has no x component, so the char<->pivot axis
+        // runs truly horizontal on screen and both are equidistant from the
+        // camera on either side. (The old +2.5*zoom x-offset skewed the
+        // orbit: P1 showed the mokujin's front with the dot nearer the
+        // camera, P2 the mirror — user-caught.)
         val targetCamX = facingF * dist * 0.12f
         camX += (targetCamX - camX) * 0.04f
         val targetZoom = (dist / 2.0f).coerceAtLeast(1f)
         camZoom += (targetZoom - camZoom) * 0.04f
-        camEyeX = camX + 2.5f * camZoom
+        camEyeX = camX
         camEyeY = 2.4f * camZoom
         camEyeZ = 11.2f * camZoom
         camCtrX = camX
