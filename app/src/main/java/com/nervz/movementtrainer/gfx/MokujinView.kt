@@ -796,7 +796,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
             "FOOT_B" to floatArrayOf(-(thighB + shinB), 0f, 0f),
             "TORSO" to floatArrayOf(10f * ramp + 9f * low, 0f, 0f),
-            "HEAD" to floatArrayOf(-4f * ramp - 3f * low, 0f, 0f),
+            // head tilts BACK as the torso folds, holding the gaze on the
+            // opponent, then settles forward again with the release
+            "HEAD" to floatArrayOf(-8f * ramp - 7f * low, 0f, 0f),
         )
     }
 
@@ -843,7 +845,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "SHIN_B" to floatArrayOf(shin, 0f, 0f),
             "FOOT_B" to floatArrayOf(-(thigh + shin), 0f, 0f),
             "TORSO" to floatArrayOf(10f * a, 0f, 0f),
-            "HEAD" to floatArrayOf(-4f * a, 0f, 0f),
+            // gaze compensation: head counter-tilts the torso fold
+            "HEAD" to floatArrayOf(-8f * a, 0f, 0f),
         )
     }
 
