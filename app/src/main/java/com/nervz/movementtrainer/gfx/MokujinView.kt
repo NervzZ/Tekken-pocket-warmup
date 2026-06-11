@@ -78,9 +78,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // head has no ball joints to derive direction from; foot centroids are a
         // crude toe-direction proxy. Tuned live via adb, then baked here.
         val TPOSE_TRIM: Map<String, FloatArray> = mapOf(
-            "HEAD" to floatArrayOf(-6f, -12f, 0f),
-            "FOOT_A" to floatArrayOf(0f, 10f, 0f),
-            "FOOT_B" to floatArrayOf(-10f, 0f, 0f),
+            "HEAD" to floatArrayOf(-6f, -17f, 0f),
+            "FOOT_A" to floatArrayOf(0f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(0f, 0f, 0f),
         )
     }
 
@@ -289,6 +289,14 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             val local = FloatArray(16)
             Matrix.setIdentityM(local, 0)
             Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
+            // trim FIRST so its axes mean model axes regardless of the base
+            // rotation (applying it after warped the feet trims into roll)
+            val t = trims[g.name]
+            if (t != null && t.size >= 3) {
+                if (t[1] != 0f) Matrix.rotateM(local, 0, t[1], 0f, 1f, 0f)
+                if (t[0] != 0f) Matrix.rotateM(local, 0, t[0], 1f, 0f, 0f)
+                if (t[2] != 0f) Matrix.rotateM(local, 0, t[2], 0f, 0f, 1f)
+            }
             val a = angles[g.name]
             if (a != null) {
                 if (a.size == 4) {
@@ -298,12 +306,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                     if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
                     if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
                 }
-            }
-            val t = trims[g.name]
-            if (t != null && t.size >= 3) {
-                if (t[1] != 0f) Matrix.rotateM(local, 0, t[1], 0f, 1f, 0f)
-                if (t[0] != 0f) Matrix.rotateM(local, 0, t[0], 1f, 0f, 0f)
-                if (t[2] != 0f) Matrix.rotateM(local, 0, t[2], 0f, 0f, 1f)
             }
             if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
             Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
