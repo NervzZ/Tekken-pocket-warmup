@@ -611,29 +611,36 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         android.util.Log.i("PoseProbe", sb.toString())
     }
 
-    // Sidestep (24f): the leg on the stepping side crosses first, the other
-    // follows; light body twist keeps the gaze on the opponent. The lateral
-    // travel itself is the orbit arc (grid rotates) — pose stays in place.
-    // Input up/down maps to a model-frame side via facing: up = +x for P1.
+    // Sidestep (24f, user spec): the OUTSIDE leg (opposite the step side)
+    // pushes the body across — knees stay near-straight (no flexing). The
+    // upper body leans/shifts toward the destination EARLY (the symmetric
+    // thigh bias becomes a real lateral body shift via the ankle centering),
+    // and the feet re-gather under the shifted body late. Lateral travel is
+    // the orbit arc. Input up/down maps to a model side via facing.
     private fun sidestepOffsets(): Map<String, FloatArray> {
         val u = sim.ssProgress
         if (u < 0f) return emptyMap()
         val dirX = sim.ssDir * sim.facingF      // model +x = char's left
-        val lift1 = bump(u, 0.00f, 0.42f)       // stepping leg
-        val lift2 = bump(u, 0.36f, 0.80f)       // trailing leg follows
-        val twist = bump(u, 0.05f, 0.75f)
-        val step = if (dirX > 0f) "B" else "A"  // leg on the stepping side
-        val trail = if (dirX > 0f) "A" else "B"
+        val lean = bump(u, 0.00f, 0.55f)        // upper body leads
+        val push = bump(u, 0.05f, 0.50f)        // outside-leg drive
+        val gather = bump(u, 0.45f, 0.95f)      // feet join the destination
+        val outside = if (dirX > 0f) "A" else "B"
+        val inside = if (dirX > 0f) "B" else "A"
+        // both-thigh bias: feet held away from the step side -> the
+        // centering shifts the BODY toward it ahead of the feet
+        val bias = -5f * dirX * lean
+        val pushZ = -6f * dirX * push           // outside leg angles out = drive
         val out = HashMap<String, FloatArray>()
-        out["THIGH_$step"] = floatArrayOf(-3f * lift1, 0f, 11f * dirX * lift1)
-        out["SHIN_$step"] = floatArrayOf(14f * lift1, 0f, 0f)
-        out["FOOT_$step"] = floatArrayOf(-11f * lift1 * 0.6f, 0f, -9f * dirX * lift1)
-        out["THIGH_$trail"] = floatArrayOf(-2f * lift2, 0f, 9f * dirX * lift2)
-        out["SHIN_$trail"] = floatArrayOf(12f * lift2, 0f, 0f)
-        out["FOOT_$trail"] = floatArrayOf(-10f * lift2 * 0.6f, 0f, -7f * dirX * lift2)
-        out["TORSO"] = floatArrayOf(0f, 6f * dirX * twist, -2f * dirX * twist)
-        out["HEAD"] = floatArrayOf(0f, -5f * dirX * twist, 0f)
-        out["PELVIS"] = floatArrayOf(0f, -4f * dirX * twist, 0f)
+        out["THIGH_$outside"] = floatArrayOf(0f, 0f, bias + pushZ)
+        out["SHIN_$outside"] = floatArrayOf(-4f * push + 5f * gather, 0f, 0f)
+        out["FOOT_$outside"] = floatArrayOf(
+            (4f * push - 5f * gather) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
+        )
+        out["THIGH_$inside"] = floatArrayOf(0f, 0f, bias)
+        out["FOOT_$inside"] = floatArrayOf(0f, 0f, -bias * 0.8f)
+        out["TORSO"] = floatArrayOf(0f, 3f * dirX * lean, -5f * dirX * lean)
+        out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
+        out["PELVIS"] = floatArrayOf(0f, -3f * dirX * lean, 0f)
         return out
     }
 
