@@ -1,5 +1,9 @@
 package com.nervz.movementtrainer
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.input.InputManager
 import android.os.Bundle
 import android.os.SystemClock
@@ -46,7 +50,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.nervz.movementtrainer.gfx.ArenaSim
+import com.nervz.movementtrainer.gfx.Calibration
 import com.nervz.movementtrainer.gfx.ArenaView
 import com.nervz.movementtrainer.gfx.MokujinView
 import com.nervz.movementtrainer.input.BUTTON_ICONS
@@ -58,6 +64,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        ContextCompat.registerReceiver(
+            this,
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    Calibration.part = intent?.getIntExtra("part", -1) ?: -1
+                }
+            },
+            IntentFilter("com.nervz.movementtrainer.CAL"),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
         getSystemService(InputManager::class.java).registerInputDeviceListener(
             object : InputManager.InputDeviceListener {
                 override fun onInputDeviceAdded(deviceId: Int) = monitor.refreshDevices()
@@ -132,6 +148,15 @@ fun MonitorScreen(monitor: InputMonitor) {
                         StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
                         Spacer(Modifier.height(2.dp))
                         StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
+                    }
+                    if (Calibration.display.value.isNotEmpty()) {
+                        Text(
+                            Calibration.display.value,
+                            color = Color(0xFFFFD54F),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 16.sp,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+                        )
                     }
                 }
             }

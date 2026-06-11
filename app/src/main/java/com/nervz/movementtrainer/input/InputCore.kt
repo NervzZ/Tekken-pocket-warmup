@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import com.nervz.movementtrainer.R
+import com.nervz.movementtrainer.gfx.Calibration
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -159,10 +160,18 @@ class InputMonitor {
         val label = TEKKEN_DEFAULT[event.keyCode] ?: KEYBOARD_TEKKEN[event.keyCode]
         val isStart = event.keyCode == KeyEvent.KEYCODE_BUTTON_START ||
             event.keyCode == KeyEvent.KEYCODE_SPACE
-        if (!isPad && !isDpad && label == null && !isStart && event.keyCode !in BUTTON_NAMES) return false
+        val isCalToggle = event.keyCode == KeyEvent.KEYCODE_C ||
+            event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
+        if (!isPad && !isDpad && label == null && !isStart && !isCalToggle &&
+            event.keyCode !in BUTTON_NAMES
+        ) return false
         if (event.repeatCount > 0) return true
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return true
         val down = event.action == KeyEvent.ACTION_DOWN
+        if (isCalToggle) {
+            if (down) Calibration.auto = !Calibration.auto
+            return true
+        }
         if (isStart) {
             if (down) {
                 side.value = if (side.value == "P1") "P2" else "P1"

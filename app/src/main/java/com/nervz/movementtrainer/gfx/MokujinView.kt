@@ -26,9 +26,29 @@ import com.google.android.filament.gltfio.UbershaderProvider
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-// Skinned mokujin layer: a translucent Filament surface stacked over the GL
-// ground layer. Reads camera + root motion from the shared ArenaSim and loops
-// the model's embedded idle clip.
+// Part-identification mode for the unrigged segmented model: set `part` to a
+// node index (adb broadcast) and that part inflates visibly in the render.
+object Calibration {
+    @Volatile var part = -1
+    @Volatile var auto = false
+    @Volatile var autoStartNanos = 0L
+    val display = androidx.compose.runtime.mutableStateOf("")
+
+    val PART_NAMES = listOf(
+        "Cube.013_Mokujin_0", "Cube.012_Mokujin_0", "Cube.011_Mokujin_0",
+        "Cube.010_Mokujin_0", "Cube.009_Mokujin_0", "Cube.008_Mokujin_0",
+        "Cube.007_Mokujin_0", "Cylinder.015_Mokujin_0", "Cylinder.014_Mokujin_0",
+        "Cylinder.013_Mokujin_0", "Cylinder.012_Mokujin_0", "Cylinder.011_Mokujin_0",
+        "Cylinder.010_Mokujin_0", "Plane.003_Mokujin_0", "Plane.002_Mokujin_0",
+        "Cylinder.016_Mokujin_0", "Torus.001_Mokujin_0", "Torus.002_Mokujin_0",
+        "Torus.003_Mokujin_0", "Cylinder.008_Mokujin_0", "Cylinder.009_Mokujin_0",
+        "Torus.008_Mokujin_0", "Torus.009_Mokujin_0", "Torus.010_Mokujin_0",
+    )
+}
+
+// Mokujin layer: a translucent Filament surface stacked over the GL ground
+// layer. Reads camera + root motion from the shared ArenaSim; plays the idle
+// clip when the asset has one.
 class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(context) {
 
     companion object {
@@ -55,8 +75,11 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private var modelOffX = 0f
     private var modelOffY = 0f
     private var modelOffZ = 0f
+    private var partEntities = IntArray(0)
+    private var partOriginals = emptyList<FloatArray>()
 
     private val m = FloatArray(16)
+    private val pm = FloatArray(16)
 
     init {
         setZOrderMediaOverlay(true)
@@ -120,7 +143,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                         animator.applyAnimation(0, t)
                         animator.updateBoneMatrices()
                     }
-                    updateRootTransform(a)
+                    applyCalibration(frameTimeNanos)
+                    updateRootTransform(a, frameTimeNanos)
                 }
                 camera.lookAt(
                     sim.camEyeX.toDouble(), sim.camEyeY.toDouble(), sim.camEyeZ.toDouble(),
@@ -162,16 +186,58 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         modelOffX = -bb.center[0] * modelScale
         modelOffY = -(bb.center[1] - bb.halfExtent[1]) * modelScale
         modelOffZ = -bb.center[2] * modelScale
+
+        val tm = engine.transformManager
+        partEntities = Calibration.PART_NAMES
+            .map { a.getFirstEntityByName(it) }
+            .toIntArray()
+        partOriginals = partEntities.map { e ->
+            val out = FloatArray(16)
+            if (e != 0) tm.getTransform(tm.getInstance(e), out)
+            out
+        }
         asset = a
     }
 
-    private fun updateRootTransform(a: FilamentAsset) {
+    private fun applyCalibration(frameTimeNanos: Long) {
+        val sel = if (Calibration.auto) {
+            if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
+            val elapsed = (frameTimeNanos - Calibration.autoStartNanos) / 1_000_000_000.0
+            val idx = ((elapsed / 2.5) % Calibration.PART_NAMES.size).toInt()
+            Calibration.display.value = "part $idx — ${Calibration.PART_NAMES[idx]}"
+            idx
+        } else {
+            Calibration.autoStartNanos = 0L
+            if (Calibration.display.value.isNotEmpty()) Calibration.display.value = ""
+            Calibration.part
+        }
+        val tm = engine.transformManager
+        for (i in partEntities.indices) {
+            val e = partEntities[i]
+            if (e == 0) continue
+            if (i == sel) {
+                System.arraycopy(partOriginals[i], 0, pm, 0, 16)
+                Matrix.scaleM(pm, 0, 1.9f, 1.9f, 1.9f)
+                tm.setTransform(tm.getInstance(e), pm)
+            } else {
+                tm.setTransform(tm.getInstance(e), partOriginals[i])
+            }
+        }
+    }
+
+    private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
         val f = sim.facingF
+        // during the calibration tour the model spins so no part stays hidden
+        val yaw = if (Calibration.auto) {
+            (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
+        } else {
+            BASE_YAW_DEG * f + sim.charTwist * f
+        }
         // T(root motion) * Rz(world-frame lean) * Ry(yaw) * S * T(center fix)
         Matrix.setIdentityM(m, 0)
         Matrix.translateM(m, 0, 0f, sim.charHopY - 0.30f * sim.charCrouch, 0f)
         Matrix.rotateM(m, 0, -sim.charLean * f, 0f, 0f, 1f)
-        Matrix.rotateM(m, 0, BASE_YAW_DEG * f + sim.charTwist * f, 0f, 1f, 0f)
+        Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
         Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)
         val tm = engine.transformManager
