@@ -38,8 +38,8 @@ object Calibration {
     @Volatile var pelvisYaw = -4f
     @Volatile var footAYaw = 12f
     @Volatile var footBYaw = -14f
-    @Volatile var footBPitch = 0f
-    @Volatile var footBRoll = 0f
+    @Volatile var footBPitch = -4f
+    @Volatile var footBRoll = -4f
     @Volatile var rootDy = 0f
     val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
