@@ -78,6 +78,7 @@ class ArenaSim(private val movement: MovementState) {
     private var landLock = 0f
     private var seenCd = 0
     private var cdT = 0f
+    private var cdNeutral = false
 
     // outputs shared with the Filament layer
     @Volatile var camEyeX = 2.5f
@@ -172,17 +173,21 @@ class ArenaSim(private val movement: MovementState) {
             MoveState.JUMP -> {
                 // uncancelable in any way: every event is dropped
             }
-            MoveState.CROUCHDASH -> when {
-                // back = instant stand; forward = stand (and that f already
-                // chains as the next sequence's first f). Seed the crouch
-                // blend at the slide's current depth so the exit is smooth.
-                relDir == -1 || relDir == 1 -> {
-                    crouchAmt = (cdT / CD_DUR / 0.8f).coerceAtMost(1f)
-                    state = MoveState.IDLE
-                    cdProgress = -1f
+            MoveState.CROUCHDASH -> {
+                // the f-cancel requires a NEUTRAL after the df first —
+                // df itself holds forward, and df->f rolls keep holding it,
+                // so an ungated relDir==1 cancelled the slide on frame one
+                // (user-caught: the anim never played)
+                if (relDir == 0 && !crouchHeld) cdNeutral = true
+                when {
+                    // back = instant stand, no neutral required
+                    relDir == -1 -> leaveCrouchdash()
+                    // forward after a neutral = the wavedash cancel (that f
+                    // already chains as the next sequence's first f)
+                    relDir == 1 && cdNeutral -> leaveCrouchdash()
+                    cdEvt -> { cdT = 0f; cdNeutral = false }
+                    else -> {}          // everything else is dropped
                 }
-                cdEvt -> { cdT = 0f }   // fresh sequence mid-slide restarts
-                else -> {}              // everything else is dropped
             }
             MoveState.DASH -> when {
                 // any other movement cancels the dash at any moment
@@ -211,7 +216,7 @@ class ArenaSim(private val movement: MovementState) {
                 // checked after, so down still ducks everything else)
                 state == MoveState.SIDEWALK_UP && movement.heldUp -> {}
                 state == MoveState.SIDEWALK_DOWN && movement.heldDown -> {}
-                cdEvt -> { state = MoveState.CROUCHDASH; cdT = 0f }
+                cdEvt -> { state = MoveState.CROUCHDASH; cdT = 0f; cdNeutral = false }
                 // up-component held past the tap window = jump (u/ub/uf)
                 upHoldT >= JUMP_HOLD -> {
                     state = MoveState.JUMP
@@ -391,6 +396,14 @@ class ArenaSim(private val movement: MovementState) {
         state = to
         bdProgress = -1f
         bdBuffered = false
+    }
+
+    // stand out of the crouchdash, seeding the crouch blend at the slide's
+    // current depth so the exit eases instead of popping
+    private fun leaveCrouchdash() {
+        crouchAmt = (cdT / CD_DUR / 0.8f).coerceAtMost(1f)
+        state = MoveState.IDLE
+        cdProgress = -1f
     }
 
     // cumulative backdash displacement fraction: ease-out covers 88% of the
