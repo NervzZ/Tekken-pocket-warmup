@@ -244,6 +244,8 @@ class InputMonitor {
             Direction.F, Direction.UF -> 1
             else -> 0
         }
+        movement.heldUp = dir == Direction.U
+        movement.heldDown = dir == Direction.D
         movement.crouching =
             dir == Direction.D || dir == Direction.DB || dir == Direction.DF
         if (dir != direction.value) {

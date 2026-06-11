@@ -6,12 +6,16 @@ import java.util.concurrent.atomic.AtomicInteger
 // Shared between the input path (writes) and the GL render thread (reads).
 class MovementState {
     @Volatile var heldX = 0          // physical: -1 = left, +1 = right
+    @Volatile var heldUp = false     // straight up held (sidewalk / jump)
+    @Volatile var heldDown = false   // straight down held (sidewalk / crouch)
     @Volatile var crouching = false
     @Volatile var facing = 1         // P1 faces right (+1), P2 faces left (-1)
     val backdashes = AtomicInteger()
+    val kbdCancels = AtomicInteger()
     val dashes = AtomicInteger()
     val crouchDashes = AtomicInteger()
-    val sidesteps = AtomicInteger()
+    val sidestepsUp = AtomicInteger()
+    val sidestepsDown = AtomicInteger()
 }
 
 // Consumes the closed-state stream (direction + how many frames it was held)
@@ -25,6 +29,8 @@ class TechEngine(private val movement: MovementState) {
     private var p2 = false
     private val maxHold = 20
     private val maxGap = 10
+    private val dfHold = 35     // the d/f IS the crouchdash — may be held longer
+    private val chainGap = 45   // neutral between a completed rep and the next chain input
 
     private enum class K { IDLE, B1, N1, BD, BD_N, AFTER_DB, AFTER_DB_N }
     private enum class W { IDLE, F, FN, D, DF, DF_N }
@@ -48,11 +54,19 @@ class TechEngine(private val movement: MovementState) {
 
     fun onState(dirPhysical: Direction, hasButtons: Boolean, frames: Int) {
         val d = logical(dirPhysical)
+        val wBefore = w
         kbd(d, hasButtons, frames)
         wavedash(d, hasButtons, frames)
         dashDetect(d, hasButtons, frames)
-        if (!hasButtons && dirPhysical == Direction.U && frames <= 8) {
-            movement.sidesteps.incrementAndGet()
+        if (!hasButtons && frames <= 8) {
+            when (dirPhysical) {
+                Direction.U -> movement.sidestepsUp.incrementAndGet()
+                // a short d that is part of a wavedash motion is not a sidestep
+                Direction.D -> if (wBefore != W.F && wBefore != W.FN) {
+                    movement.sidestepsDown.incrementAndGet()
+                }
+                else -> {}
+            }
         }
     }
 
@@ -86,6 +100,7 @@ class TechEngine(private val movement: MovementState) {
             K.BD -> when {
                 d == Direction.DB && quick -> {
                     kbdStreak.intValue++
+                    movement.kbdCancels.incrementAndGet()
                     K.AFTER_DB
                 }
                 d == Direction.N && shortGap -> K.BD_N
@@ -94,6 +109,7 @@ class TechEngine(private val movement: MovementState) {
             K.BD_N -> when {
                 d == Direction.DB && quick -> {
                     kbdStreak.intValue++
+                    movement.kbdCancels.incrementAndGet()
                     K.AFTER_DB
                 }
                 d == Direction.B && quick -> {
@@ -139,14 +155,14 @@ class TechEngine(private val movement: MovementState) {
                 else -> wFail(d, quick)
             }
             W.FN -> if (d == Direction.D && quick) W.D else wFail(d, quick)
-            W.D -> if (d == Direction.DF && quick) {
+            W.D -> if (d == Direction.DF && frames <= dfHold) {
                 wdStreak.intValue++
                 movement.crouchDashes.incrementAndGet()
                 W.DF
             } else wFail(d, quick)
             W.DF -> when {
                 d == Direction.F && quick -> W.F
-                d == Direction.N && shortGap -> W.DF_N
+                d == Direction.N && frames <= chainGap -> W.DF_N
                 else -> wFail(d, quick)
             }
             W.DF_N -> if (d == Direction.F && quick) W.F else wFail(d, quick)
