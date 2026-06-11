@@ -41,6 +41,7 @@ object Calibration {
     @Volatile var footBPitch = -4f
     @Volatile var footBRoll = -4f
     @Volatile var rootDy = 0f
+    @Volatile var dumpPose = false
     val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
     @Volatile var pauseNanos = 0L
@@ -68,18 +69,36 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val STANCE_OFFSETS: Map<String, FloatArray> = mapOf(
             "TORSO" to floatArrayOf(8f, 0f, 0f),
             "HEAD" to floatArrayOf(0f, 20f, 0f),
-            "THIGH_B" to floatArrayOf(-16f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(-16f, 0f, 9f),
             "SHIN_B" to floatArrayOf(14f, 0f, 0f),
-            "THIGH_A" to floatArrayOf(16f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(0f, 0f, -9f),
+            "THIGH_A" to floatArrayOf(16f, 0f, -9f),
             "SHIN_A" to floatArrayOf(18f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-30f, -20f, 0f),
-            "UARM_B" to floatArrayOf(0f, -22f, -65f),
-            "FARM_B" to floatArrayOf(0f, -38f, 95f),
-            "UARM_A" to floatArrayOf(0f, 25f, 72f),
-            "FARM_A" to floatArrayOf(0f, 30f, -100f),
+            "FOOT_A" to floatArrayOf(-30f, -20f, 9f),
+            "UARM_B" to floatArrayOf(0f, -22f, -92f),
+            "FARM_B" to floatArrayOf(0f, -85f, 95f),
+            "UARM_A" to floatArrayOf(0f, 25f, 102f),
+            "FARM_A" to floatArrayOf(0f, 95f, -100f),
         )
         const val STANCE_BODY_YAW = -22f
         const val STANCE_ROOT_DY = -0.05f
+
+        private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
+
+        // model-space landmark points carried by each group — the pose probe
+        // reports their posed positions (fists from mokujin_parts.json; the
+        // joint landmarks are the child groups' pivots, carried by the parent)
+        val PROBE_POINTS = listOf(
+            Triple("fist_L", "FARM_B", floatArrayOf(0.5893f, 1.5236f, 0.1477f)),
+            Triple("fist_R", "FARM_A", floatArrayOf(-0.5224f, 0.9366f, 0.0712f)),
+            Triple("elbow_L", "UARM_B", rigPivot("FARM_B")),
+            Triple("elbow_R", "UARM_A", rigPivot("FARM_A")),
+            Triple("knee_L", "THIGH_B", rigPivot("SHIN_B")),
+            Triple("knee_R", "THIGH_A", rigPivot("SHIN_A")),
+            Triple("ankle_L", "SHIN_B", rigPivot("FOOT_B")),
+            Triple("ankle_R", "SHIN_A", rigPivot("FOOT_A")),
+            Triple("head_top", "HEAD", floatArrayOf(0f, 1.75f, 0f)),
+        )
 
         // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
         // head has no ball joints to derive direction from; foot centroids are a
@@ -370,6 +389,19 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 Matrix.multiplyMM(m, 0, rt.pInv[i], 0, scratch, 0)
                 tm.setTransform(tm.getInstance(rt.entities[i]), m)
             }
+        }
+
+        if (Calibration.dumpPose) {
+            Calibration.dumpPose = false
+            val sb = StringBuilder("pose probe (model space):\n")
+            for ((label, grp, p) in PROBE_POINTS) {
+                val w = groupWorld[grp] ?: continue
+                val x = w[0] * p[0] + w[4] * p[1] + w[8] * p[2] + w[12]
+                val y = w[1] * p[0] + w[5] * p[1] + w[9] * p[2] + w[13]
+                val z = w[2] * p[0] + w[6] * p[1] + w[10] * p[2] + w[14]
+                sb.append("  %-9s (%6.2f, %5.2f, %6.2f)\n".format(label, x, y, z))
+            }
+            android.util.Log.i("PoseProbe", sb.toString())
         }
     }
 

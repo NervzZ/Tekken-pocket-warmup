@@ -87,6 +87,9 @@ class MainActivity : ComponentActivity() {
                     if (intent.hasExtra("part")) {
                         Calibration.part = intent.getIntExtra("part", -1)
                     }
+                    if (intent.hasExtra("dump")) {
+                        Calibration.dumpPose = true
+                    }
                 }
             },
             IntentFilter("com.nervz.movementtrainer.CAL"),
