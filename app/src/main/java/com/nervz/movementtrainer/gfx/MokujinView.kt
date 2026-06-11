@@ -107,7 +107,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
-        const val RUN_SWING = 26f           // run thigh swing — big strides
+        const val RUN_SWING = 34f           // run thigh swing — big strides
+        const val RUN_LEG_STRAIGHTEN = 0.6f // fraction of stance leg-coil unwound
         const val RUN_KNEE = 42f            // run knee-lift amplitude
         const val RUN_ARM = 14f             // shoulder pump amplitude
         const val RUN_LEAN = 10f            // forward lean over the stance
@@ -445,6 +446,17 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         fun add(g: String, rx: Float, ry: Float, rz: Float) {
             val cur = out.getOrPut(g) { floatArrayOf(0f, 0f, 0f) }
             cur[0] += rx * r; cur[1] += ry * r; cur[2] += rz * r
+        }
+        // legs run STRAIGHTER than the coiled stance: unwind a fraction of
+        // the stance's LEG offsets only (guard/torso/blade stay untouched)
+        for (g in arrayOf("THIGH_A", "SHIN_A", "FOOT_A", "THIGH_B", "SHIN_B", "FOOT_B")) {
+            val v = STANCE_OFFSETS[g] ?: continue
+            add(
+                g,
+                -v[0] * RUN_LEG_STRAIGHTEN,
+                -v[1] * RUN_LEG_STRAIGHTEN,
+                -v[2] * RUN_LEG_STRAIGHTEN,
+            )
         }
         for ((side, off) in listOf("A" to 0f, "B" to Math.PI.toFloat())) {
             val swing = kotlin.math.sin(p + off)

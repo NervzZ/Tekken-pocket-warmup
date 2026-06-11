@@ -271,7 +271,7 @@ class ArenaSim(private val movement: MovementState) {
         const val BD_MOVE_SPLIT = 0.88f     // share of distance in frames 0-19
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
         const val SIDESTEP_ARC = 0.42f      // lateral units circled per step
-        const val DASH_DUR = 80f / 60f      // 80 frames
+        const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         const val DASH_SPEED = 2.2f         // a run — much faster than walking
         const val DASH_STRIDE = 0.55f       // long running strides
     }
