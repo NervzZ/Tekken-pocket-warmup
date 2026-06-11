@@ -87,7 +87,8 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
     private var sidewalk = 0
     private var heldUpStart = -1f
     private var jumpArmed = true
-    private var camX = 1.5f
+    private var camX = 0.4f
+    private var camZoom = 1.7f
 
     override fun onSurfaceCreated(unused: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.063f, 0.078f, 0.094f, 1f)
@@ -150,13 +151,19 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glUseProgram(program)
-        // camera leans toward the opponent so the ghost stays in frame
+        // camera unzooms with distance so both the character and the pivot
+        // dot stay in frame; slight bias keeps the character right of the
+        // history overlay
         val f = movement.facing.toFloat()
-        // pivot bias minus a right-shift so the character clears the
-        // history overlay now that the pane spans the full screen width
-        val targetCamX = f * (min(dist, 2.2f) * 0.5f - 0.5f)
+        val targetCamX = f * dist * 0.12f
         camX += (targetCamX - camX) * 0.04f
-        Matrix.setLookAtM(view, 0, camX + 2.5f, 2.4f, 11.2f, camX, 1.0f, 0f, 0f, 1f, 0f)
+        val targetZoom = (dist / 2.0f).coerceAtLeast(1f)
+        camZoom += (targetZoom - camZoom) * 0.04f
+        Matrix.setLookAtM(
+            view, 0,
+            camX + 2.5f * camZoom, 2.4f * camZoom, 11.2f * camZoom,
+            camX, 1.0f, 0f, 0f, 1f, 0f,
+        )
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
 
         drawGrid()
@@ -239,9 +246,11 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val vx = heldX * walkSpeed * inClipDamp + vImpulse
         vImpulse *= exp(-dt * 6f)
 
-        // orbit integration: vx (screen x) toward +facing = toward the opponent
+        // orbit integration: vx (screen x) toward +facing = toward the pivot.
+        // dist is hard-capped: at the edges the character keeps animating but
+        // "slides" in place instead of drifting further away
         dist -= vx * facing * dt
-        dist = dist.coerceIn(1.1f, 9.0f)
+        dist = dist.coerceIn(1.1f, 5.5f)
         val vSide = zImpulse + zWalk
         orbitAng += -vSide * dt / dist
         zImpulse *= exp(-dt * 8f)
@@ -264,8 +273,12 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
     // the world so the opponent sits toward +facing*x, with the character at
     // the origin. The patch is re-centered on the nearest integer cell, so the
     // floor is seamless and infinite while it rotates around you mid-sidestep.
+    // R_y(a) maps polar angle phi -> phi - a, and the char->pivot direction
+    // sits at angle alpha+pi, so mapping it onto +x (P1) needs a = alpha+pi.
+    // (The sign was flipped once: grid rotated against the world, the pivot
+    // dot visibly slid across the floor — user-caught.)
     private fun worldRotationDeg(): Float {
-        val psi = if (movement.facing == 1) -(orbitAng + PI.toFloat()) else -orbitAng
+        val psi = if (movement.facing == 1) orbitAng + PI.toFloat() else orbitAng
         return Math.toDegrees(psi.toDouble()).toFloat()
     }
 
@@ -302,11 +315,9 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         val f = movement.facing.toFloat()
         // soft shadow under the character
         part(0f, 0.022f, 0f, 0f, 0f, 0f, 0.85f, 0.02f, 0.6f, 0.02f, 0.03f, 0.04f, 0.55f, lit = false)
-        // red dot on the ground marking the orbit pivot; clamped into frame
-        // and faded with range
-        val vis = min(dist, 2.2f)
-        val fade = (2.6f / dist).coerceAtMost(1f)
-        part(f * vis, 0.03f, 0f, 0f, 45f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f * fade, lit = false)
+        // red dot at the TRUE pivot position (the world origin — it always
+        // sits on a grid crossing, which doubles as a sync check)
+        part(f * dist, 0.03f, 0f, 0f, 45f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f, lit = false)
     }
 
     // ---- mokujin ----

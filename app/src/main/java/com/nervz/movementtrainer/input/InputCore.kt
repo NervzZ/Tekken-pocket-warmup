@@ -179,7 +179,9 @@ class InputMonitor {
         if (!isPad) {
             // Host keyboard auto-repeat reaches the guest as rapid release/press
             // pairs; debounce releases so a held key reads as a continuous hold.
-            // Real pads bypass this — their timing must stay raw.
+            // Auto-repeat only starts after a long hold, so quick taps (mashing
+            // buttons, sidestep taps) release IMMEDIATELY and never merge.
+            // Real pads bypass all of this — their timing must stay raw.
             if (down) {
                 val pending = pendingKeyUp.remove(event.keyCode)
                 if (pending != null) {
@@ -187,6 +189,10 @@ class InputMonitor {
                     return true
                 }
             } else {
+                if (event.eventTime - event.downTime < 200) {
+                    applyKey(event.keyCode, false, event.eventTime, label, isDpad)
+                    return true
+                }
                 val t = event.eventTime
                 val code = event.keyCode
                 val r = Runnable {

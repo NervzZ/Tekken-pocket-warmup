@@ -115,14 +115,8 @@ fun MonitorScreen(monitor: InputMonitor) {
                         Modifier
                             .align(Alignment.CenterStart)
                             .fillMaxHeight()
-                            .width(180.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    0f to Color(0xFF101418),
-                                    0.62f to Color(0xFF101418),
-                                    1f to Color(0x00101418),
-                                ),
-                            ),
+                            .width(170.dp)
+                            .background(Color(0xFF101418)),
                     )
                     HistoryList(
                         monitor,
