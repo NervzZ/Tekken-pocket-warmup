@@ -11,9 +11,14 @@ class RigGroup(
 
 val MOKUJIN_RIG: List<RigGroup> = listOf(
     RigGroup(
+        "PELVIS", null,
+        floatArrayOf(0.0f, 0.92f, 0.0f),
+        listOf("Cube.009_Mokujin_0_A", "Cube.009_Mokujin_0_B", "Cylinder.015_Mokujin_0_P0"),
+    ),
+    RigGroup(
         "TORSO", null,
         floatArrayOf(0.0f, 0.92f, 0.0f),
-        listOf("Cube.009_Mokujin_0_A", "Cube.009_Mokujin_0_B", "Cube.011_Mokujin_0_A", "Cube.011_Mokujin_0_B", "Cylinder.015_Mokujin_0_P0", "Cylinder.015_Mokujin_0_P1", "Cylinder.015_Mokujin_0_P2"),
+        listOf("Cube.011_Mokujin_0_A", "Cube.011_Mokujin_0_B", "Cylinder.015_Mokujin_0_P1", "Cylinder.015_Mokujin_0_P2"),
     ),
     RigGroup(
         "HEAD", "TORSO",
@@ -41,7 +46,7 @@ val MOKUJIN_RIG: List<RigGroup> = listOf(
         listOf("Cube.013_Mokujin_0_B", "Cylinder.013_Mokujin_0_P3", "Cylinder.013_Mokujin_0_P4", "Cylinder.013_Mokujin_0_P5", "Torus.010_Mokujin_0_P4", "Torus.010_Mokujin_0_P5", "Torus.010_Mokujin_0_P6"),
     ),
     RigGroup(
-        "THIGH_A", null,
+        "THIGH_A", "PELVIS",
         floatArrayOf(-0.108f, 0.8632f, 0.0441f),
         listOf("Cube.010_Mokujin_0_A", "Cylinder.012_Mokujin_0_P0", "Cylinder.012_Mokujin_0_P1", "Cylinder.012_Mokujin_0_P2", "Torus.003_Mokujin_0_P0", "Torus.003_Mokujin_0_P1", "Torus.003_Mokujin_0_P10", "Torus.003_Mokujin_0_P2", "Torus.003_Mokujin_0_P3", "Torus.003_Mokujin_0_P4", "Torus.003_Mokujin_0_P5", "Torus.003_Mokujin_0_P6", "Torus.003_Mokujin_0_P7", "Torus.003_Mokujin_0_P8", "Torus.003_Mokujin_0_P9"),
     ),
@@ -56,7 +61,7 @@ val MOKUJIN_RIG: List<RigGroup> = listOf(
         listOf("Cylinder.010_Mokujin_0_P0", "Cylinder.010_Mokujin_0_P1", "Cylinder.010_Mokujin_0_P2", "Cylinder.010_Mokujin_0_P3", "Torus.002_Mokujin_0_P0", "Torus.002_Mokujin_0_P1"),
     ),
     RigGroup(
-        "THIGH_B", null,
+        "THIGH_B", "PELVIS",
         floatArrayOf(0.1247f, 0.8632f, -0.055f),
         listOf("Cube.010_Mokujin_0_B", "Cylinder.012_Mokujin_0_P3", "Cylinder.012_Mokujin_0_P4", "Cylinder.012_Mokujin_0_P5", "Cylinder.012_Mokujin_0_P6", "Torus.008_Mokujin_0_P0", "Torus.008_Mokujin_0_P1", "Torus.008_Mokujin_0_P10", "Torus.008_Mokujin_0_P11", "Torus.008_Mokujin_0_P2", "Torus.008_Mokujin_0_P3", "Torus.008_Mokujin_0_P4", "Torus.008_Mokujin_0_P5", "Torus.008_Mokujin_0_P6", "Torus.008_Mokujin_0_P7", "Torus.008_Mokujin_0_P8", "Torus.008_Mokujin_0_P9", "Torus.010_Mokujin_0_P0", "Torus.010_Mokujin_0_P1", "Torus.010_Mokujin_0_P2", "Torus.010_Mokujin_0_P3"),
     ),

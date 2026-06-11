@@ -73,6 +73,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "FOOT_B" to floatArrayOf(-18f, 0f, 0f),
         )
         const val STANCE_ROOT_DY = -0.07f
+
+        // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
+        // head has no ball joints to derive direction from; foot centroids are a
+        // crude toe-direction proxy. Tuned live via adb, then baked here.
+        val TPOSE_TRIM: Map<String, FloatArray> = mapOf(
+            "HEAD" to floatArrayOf(-6f, -12f, 0f),
+            "FOOT_A" to floatArrayOf(0f, 10f, 0f),
+            "FOOT_B" to floatArrayOf(-10f, 0f, 0f),
+        )
     }
 
     private val engine = Engine.create()
@@ -235,21 +244,22 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     }
 
     // T = symmetric T-pose reference (spinning); V = raw authored pose;
-    // default = battle stance. Map values: size 3 = Euler (rx,ry,rz),
-    // size 4 = axis-angle (deg, x, y, z).
-    private fun poseAngles(): Map<String, FloatArray> = when {
-        Calibration.tPose -> MOKUJIN_TPOSE
-        Calibration.testPose -> emptyMap()
-        else -> {
-            val merged = HashMap(STANCE)
-            merged.putAll(Calibration.stanceOverrides)
-            merged
+    // default = battle stance. Base values: size 3 = Euler (rx,ry,rz),
+    // size 4 = axis-angle (deg, x, y, z). Trim values: Euler, applied after
+    // the base rotation at the same pivot; live adb overrides land in trim.
+    private fun poseLayers(): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
+        Calibration.tPose -> {
+            val trim = HashMap(TPOSE_TRIM)
+            trim.putAll(Calibration.stanceOverrides)
+            MOKUJIN_TPOSE to trim
         }
+        Calibration.testPose -> emptyMap<String, FloatArray>() to emptyMap()
+        else -> STANCE to Calibration.stanceOverrides.toMap()
     }
 
     private fun applyRigPose(frameTimeNanos: Long) {
         val tm = engine.transformManager
-        val angles = poseAngles()
+        val (angles, trims) = poseLayers()
 
         val tourSel = if (Calibration.auto) {
             if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
@@ -288,6 +298,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                     if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
                     if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
                 }
+            }
+            val t = trims[g.name]
+            if (t != null && t.size >= 3) {
+                if (t[1] != 0f) Matrix.rotateM(local, 0, t[1], 0f, 1f, 0f)
+                if (t[0] != 0f) Matrix.rotateM(local, 0, t[0], 1f, 0f, 0f)
+                if (t[2] != 0f) Matrix.rotateM(local, 0, t[2], 0f, 0f, 1f)
             }
             if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
             Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
