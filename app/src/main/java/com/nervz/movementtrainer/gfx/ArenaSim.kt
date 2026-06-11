@@ -17,8 +17,10 @@ import kotlin.math.sin
 //   WALK_B   — slower walk away (Tekken: backward walk < forward walk)
 //   BACKDASH — two quick back inputs; 34 frames, displacement front-loaded
 //              into the first 19 (the rest is recovery). UNCANCELABLE: the
-//              full 34 frames always play; events arriving mid-backdash are
-//              consumed and dropped. (Cancel inputs to be specified later.)
+//              full 34 frames always play. A backdash completed mid-anim is
+//              BUFFERED and chains gaplessly at frame 34 — but any other
+//              directional input after buffering invalidates the buffer.
+//              (Explicit cancel inputs to be specified later.)
 class ArenaSim(private val movement: MovementState) {
 
     enum class MoveState { IDLE, WALK_F, WALK_B, BACKDASH }
@@ -31,6 +33,7 @@ class ArenaSim(private val movement: MovementState) {
     private var walkAmt = 0f
     private var seenBd = 0
     private var bdT = 0f
+    private var bdBuffered = false
 
     // outputs shared with the Filament layer
     @Volatile var camEyeX = 2.5f
@@ -54,21 +57,41 @@ class ArenaSim(private val movement: MovementState) {
         val bdCount = movement.backdashes.get()
         while (seenBd < bdCount) {
             seenBd++
-            // uncancelable: a backdash in progress drops incoming events
             if (state != MoveState.BACKDASH) {
                 state = MoveState.BACKDASH
                 bdT = 0f
+                bdBuffered = false
+            } else {
+                // BB completed mid-anim: buffer the next backdash
+                bdBuffered = true
             }
         }
         if (state == MoveState.BACKDASH) {
+            // doing anything else after buffering (forward, up, down)
+            // invalidates the buffer — only sustained BB spam chains
+            if (bdBuffered &&
+                (movement.heldX * facing == 1 || movement.heldUp || movement.heldDown)
+            ) {
+                bdBuffered = false
+            }
             val uPrev = (bdT / BACKDASH_DUR).coerceAtMost(1f)
             bdT += dt
             val u = (bdT / BACKDASH_DUR).coerceAtMost(1f)
             dist += (bdDisp(u) - bdDisp(uPrev)) * BACKDASH_DIST
             bdProgress = u
             if (bdT >= BACKDASH_DUR) {
-                state = MoveState.IDLE
-                bdProgress = -1f
+                if (bdBuffered) {
+                    // gapless chain: carry the leftover time into the next
+                    // dash and integrate its first displacement slice
+                    bdBuffered = false
+                    bdT -= BACKDASH_DUR
+                    val u2 = (bdT / BACKDASH_DUR).coerceAtMost(1f)
+                    dist += bdDisp(u2) * BACKDASH_DIST
+                    bdProgress = u2
+                } else {
+                    state = MoveState.IDLE
+                    bdProgress = -1f
+                }
             }
         } else {
             bdProgress = -1f

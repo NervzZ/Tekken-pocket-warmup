@@ -443,8 +443,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // all foot action lives inside the f0-19 movement window, the
         // recovery frames are posture settle only (user spec)
         val push = bump(u, 0.00f, 0.28f)    // instant left-leg drive (heel-up)
-        val liftA = bump(u, 0.02f, 0.30f)   // right foot steps back, grounded ~f10
-        val liftB = bump(u, 0.28f, 0.62f)   // left foot off right behind it, lands ~f21
+        val liftA = bump(u, 0.02f, 0.28f)   // right foot steps back, grounded ~f10
+        val liftB = bump(u, 0.24f, 0.54f)   // left foot right behind it, lands ~f18
         val settle = bump(u, 0.75f, 1.00f)  // small final settle
         animHopY = 0f
 
