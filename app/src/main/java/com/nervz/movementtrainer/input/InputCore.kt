@@ -85,6 +85,17 @@ val KEYBOARD_TEKKEN = mapOf(
     KeyEvent.KEYCODE_K to "4",
 )
 
+// User-provided Tekken button-cluster icons; key = pressed buttons sorted, e.g. "12".
+val BUTTON_ICONS = mapOf(
+    "1" to R.drawable.btn_1, "2" to R.drawable.btn_2,
+    "3" to R.drawable.btn_3, "4" to R.drawable.btn_4,
+    "12" to R.drawable.btn_12, "13" to R.drawable.btn_13, "14" to R.drawable.btn_14,
+    "23" to R.drawable.btn_23, "24" to R.drawable.btn_24, "34" to R.drawable.btn_34,
+    "123" to R.drawable.btn_123, "124" to R.drawable.btn_124,
+    "134" to R.drawable.btn_134, "234" to R.drawable.btn_234,
+    "1234" to R.drawable.btn_1234,
+)
+
 val DPAD_KEYCODES = setOf(
     KeyEvent.KEYCODE_DPAD_LEFT,
     KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -108,6 +119,8 @@ class InputMonitor {
     val rows = mutableStateListOf<HistoryRow>()
     val direction = mutableStateOf(Direction.N)
     val side = mutableStateOf("P1")
+    val movement = MovementState()
+    val tech = TechEngine(movement)
 
     private val epochMs = SystemClock.uptimeMillis()
     private val pressedButtons = sortedSetOf<String>()
@@ -124,6 +137,7 @@ class InputMonitor {
 
     fun clear() {
         rows.clear()
+        tech.resetStreaks()
     }
 
     fun refreshDevices() {
@@ -145,7 +159,12 @@ class InputMonitor {
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return true
         val down = event.action == KeyEvent.ACTION_DOWN
         if (isStart) {
-            if (down) side.value = if (side.value == "P1") "P2" else "P1"
+            if (down) {
+                side.value = if (side.value == "P1") "P2" else "P1"
+                val p2 = side.value == "P2"
+                movement.facing = if (p2) -1 else 1
+                tech.setSide(p2)
+            }
             return true
         }
         if (!isDpad && label == null) return true
@@ -220,6 +239,13 @@ class InputMonitor {
             else -> stickY
         }
         val dir = directionFrom(x, y)
+        movement.heldX = when (dir) {
+            Direction.B, Direction.UB -> -1
+            Direction.F, Direction.UF -> 1
+            else -> 0
+        }
+        movement.crouching =
+            dir == Direction.D || dir == Direction.DB || dir == Direction.DF
         if (dir != direction.value) {
             direction.value = dir
             onInputChanged(t)
@@ -250,6 +276,7 @@ class InputMonitor {
             } else {
                 live.frames.intValue = min(999, finalCount)
                 live.closed = true
+                tech.onState(live.dir, live.buttons.isNotEmpty(), finalCount)
             }
         }
         rows.add(0, HistoryRow(reg, dir, buttons))

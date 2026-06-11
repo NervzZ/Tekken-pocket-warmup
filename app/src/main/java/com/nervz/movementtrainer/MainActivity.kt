@@ -9,12 +9,12 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,10 +39,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.nervz.movementtrainer.gfx.ArenaView
+import com.nervz.movementtrainer.input.BUTTON_ICONS
 import com.nervz.movementtrainer.input.InputMonitor
 
 class MainActivity : ComponentActivity() {
@@ -79,6 +83,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val DimText = Color(0xFF7B8794)
+private val P1Color = Color(0xFF5BC8FF)
+private val P2Color = Color(0xFFFF6B74)
+private val AccentRed = Color(0xFFE8333F)
+
 @Composable
 fun MonitorScreen(monitor: InputMonitor) {
     MaterialTheme(colorScheme = darkColorScheme()) {
@@ -92,84 +101,149 @@ fun MonitorScreen(monitor: InputMonitor) {
                         detectTapGestures { monitor.clear() }
                     },
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        monitor.side.value,
-                        color = Color.White,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 16.sp,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (monitor.devices.isEmpty()) {
-                        Text("no gamepad detected", color = Color(0xFFE08A8A), fontSize = 12.sp)
-                    } else {
-                        Text(
-                            monitor.devices.first(),
-                            color = Color(0xFF8FD18F),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                HeaderRow(monitor)
                 Spacer(Modifier.height(6.dp))
-                val listState = rememberLazyListState()
-                LaunchedEffect(monitor.rows.size) {
-                    if (monitor.rows.isNotEmpty()) {
-                        listState.scrollToItem(0)
-                    }
-                }
-                LaunchedEffect(Unit) {
-                    while (true) {
-                        withFrameNanos { }
-                        monitor.tick(SystemClock.uptimeMillis())
-                    }
-                }
-                LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(monitor.rows) { row ->
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.height(34.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.width(44.dp),
-                                ) {
-                                    if (row.dir.icon != null) {
-                                        Image(
-                                            painterResource(row.dir.icon),
-                                            contentDescription = row.dir.label,
-                                            modifier = Modifier.size(28.dp),
-                                        )
-                                        if (row.buttons.isNotEmpty()) {
-                                            Spacer(Modifier.width(8.dp))
-                                        }
-                                    }
-                                    if (row.buttons.isNotEmpty()) {
-                                        Text(
-                                            row.buttons.joinToString("+"),
-                                            color = Color.White,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 18.sp,
-                                        )
-                                    }
-                                }
-                                Text(
-                                    "${row.frames.intValue}",
-                                    color = Color(0xFF7B8794),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 14.sp,
-                                )
-                            }
-                            HorizontalDivider(
-                                color = Color(0xFF1E242B),
-                                thickness = 1.dp,
-                                modifier = Modifier.width(76.dp),
-                            )
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    HistoryList(monitor, Modifier.width(150.dp).fillMaxHeight())
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        AndroidView(
+                            factory = { ctx -> ArenaView(ctx, monitor.movement) },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Column(
+                            Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp),
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
+                            Spacer(Modifier.height(2.dp))
+                            StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderRow(monitor: InputMonitor) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            monitor.side.value,
+            color = if (monitor.side.value == "P1") P1Color else P2Color,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            fontSize = 22.sp,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "press start to switch sides",
+            color = DimText,
+            fontSize = 10.sp,
+        )
+        Spacer(Modifier.weight(1f))
+        if (monitor.devices.isEmpty()) {
+            Text("no gamepad detected", color = Color(0xFFE08A8A), fontSize = 12.sp)
+        } else {
+            Text(
+                monitor.devices.first(),
+                color = Color(0xFF8FD18F),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StreakCounter(label: String, value: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            color = DimText,
+            fontSize = 10.sp,
+            letterSpacing = 2.sp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "$value",
+            color = if (value > 0) AccentRed else Color(0xFF3A434D),
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            fontSize = 26.sp,
+        )
+    }
+}
+
+@Composable
+private fun HistoryList(monitor: InputMonitor, modifier: Modifier) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(monitor.rows.size) {
+        if (monitor.rows.isNotEmpty()) {
+            listState.scrollToItem(0)
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos { }
+            monitor.tick(SystemClock.uptimeMillis())
+        }
+    }
+    LazyColumn(state = listState, modifier = modifier) {
+        items(monitor.rows) { row ->
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.height(34.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.width(76.dp),
+                    ) {
+                        if (row.dir.icon != null) {
+                            Image(
+                                painterResource(row.dir.icon),
+                                contentDescription = row.dir.label,
+                                modifier = Modifier.size(28.dp),
+                            )
+                            if (row.buttons.isNotEmpty()) {
+                                Spacer(Modifier.width(6.dp))
+                            }
+                        }
+                        if (row.buttons.isNotEmpty()) {
+                            val icon = BUTTON_ICONS[row.buttons.joinToString("")]
+                            if (icon != null) {
+                                Image(
+                                    painterResource(icon),
+                                    contentDescription = row.buttons.joinToString("+"),
+                                    modifier = Modifier.size(30.dp),
+                                )
+                            } else {
+                                Text(
+                                    row.buttons.joinToString("+"),
+                                    color = Color.White,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 18.sp,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "${row.frames.intValue}",
+                        color = DimText,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                    )
+                }
+                HorizontalDivider(
+                    color = Color(0xFF1E242B),
+                    thickness = 1.dp,
+                    modifier = Modifier.width(116.dp),
+                )
             }
         }
     }
