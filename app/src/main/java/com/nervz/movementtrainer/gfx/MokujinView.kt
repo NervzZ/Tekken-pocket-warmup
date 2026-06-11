@@ -438,17 +438,20 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             animHopY = 0f
             return emptyMap()
         }
-        val loadB = bump(u, 0.00f, 0.20f)   // brace: quick sink onto the lead
-        val push = bump(u, 0.06f, 0.45f)    // left-leg drive (heel-up)
-        val liftA = bump(u, 0.02f, 0.42f)   // right foot steps back, grounded by ~14f
-        val liftB = bump(u, 0.45f, 0.85f)   // then the left foot steps home
-        val settle = bump(u, 0.78f, 1.00f)  // small final settle
+        // no brace phase: the stance is already poised on the lead foot, so
+        // the push fires on frame 0 and the left foot is off near-instantly;
+        // all foot action lives inside the f0-19 movement window, the
+        // recovery frames are posture settle only (user spec)
+        val push = bump(u, 0.00f, 0.28f)    // instant left-leg drive (heel-up)
+        val liftA = bump(u, 0.02f, 0.30f)   // right foot steps back, grounded ~f10
+        val liftB = bump(u, 0.28f, 0.62f)   // left foot off right behind it, lands ~f21
+        val settle = bump(u, 0.75f, 1.00f)  // small final settle
         animHopY = 0f
 
         val thighA = 6f * liftA - 2f * settle
         val shinA = 22f * liftA + 5f * settle
-        val thighB = -4f * loadB + 5f * push - 6f * liftB
-        val shinB = 8f * loadB - 10f * push + 18f * liftB
+        val thighB = 5f * push - 6f * liftB
+        val shinB = -10f * push + 18f * liftB
         return mapOf(
             "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
             "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
