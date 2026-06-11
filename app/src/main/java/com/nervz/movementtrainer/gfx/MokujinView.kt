@@ -33,6 +33,8 @@ object Calibration {
     @Volatile var auto = false
     @Volatile var paused = false
     @Volatile var testPose = false
+    @Volatile var rootDy = 0f
+    val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
     @Volatile var pauseNanos = 0L
     val display = androidx.compose.runtime.mutableStateOf("")
@@ -51,6 +53,25 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         }
         private const val TARGET_HEIGHT = 1.66f
         private const val BASE_YAW_DEG = 90f
+
+        // Battle-stance offsets from the authored pose: per group (rx, ry, rz)
+        // degrees about the model-space pivot. rx: + swings backward, - forward.
+        // Tuned live via adb (Calibration.stanceOverrides), then baked here.
+        val STANCE: Map<String, FloatArray> = mapOf(
+            "TORSO" to floatArrayOf(-6f, 12f, 0f),
+            "HEAD" to floatArrayOf(4f, -8f, 0f),
+            "UARM_A" to floatArrayOf(-12f, 0f, 0f),
+            "FARM_A" to floatArrayOf(-38f, 0f, 0f),
+            "UARM_B" to floatArrayOf(6f, 0f, 0f),
+            "FARM_B" to floatArrayOf(8f, 0f, 0f),
+            "THIGH_A" to floatArrayOf(-14f, 0f, 0f),
+            "SHIN_A" to floatArrayOf(20f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-6f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(10f, 0f, 0f),
+            "SHIN_B" to floatArrayOf(24f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-18f, 0f, 0f),
+        )
+        const val STANCE_ROOT_DY = -0.07f
     }
 
     private val engine = Engine.create()
@@ -212,14 +233,13 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         asset = a
     }
 
-    // Static test pose exercising the pivots; everything else = authored pose.
-    private fun poseAngles(): Map<String, Float> = if (Calibration.testPose) {
-        mapOf(
-            "SHIN_A" to 40f, "SHIN_B" to 40f,
-            "FARM_B" to -45f, "UARM_A" to 25f, "HEAD" to 14f,
-        )
-    } else {
+    // V toggles back to the raw authored pose for comparison.
+    private fun poseAngles(): Map<String, FloatArray> = if (Calibration.testPose) {
         emptyMap()
+    } else {
+        val merged = HashMap(STANCE)
+        merged.putAll(Calibration.stanceOverrides)
+        merged
     }
 
     private fun applyRigPose(frameTimeNanos: Long) {
@@ -254,8 +274,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             val local = FloatArray(16)
             Matrix.setIdentityM(local, 0)
             Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
-            val angle = angles[g.name] ?: 0f
-            if (angle != 0f) Matrix.rotateM(local, 0, angle, 1f, 0f, 0f)
+            val a = angles[g.name]
+            if (a != null) {
+                if (a[1] != 0f) Matrix.rotateM(local, 0, a[1], 0f, 1f, 0f)
+                if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
+                if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
+            }
             if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
             Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
             val world = if (g.parent != null) {
@@ -281,7 +305,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         } else {
             BASE_YAW_DEG * sim.facingF
         }
+        val dy = if (Calibration.testPose) 0f else STANCE_ROOT_DY + Calibration.rootDy
         Matrix.setIdentityM(m, 0)
+        Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
         Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)

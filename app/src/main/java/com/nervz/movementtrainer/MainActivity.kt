@@ -68,7 +68,25 @@ class MainActivity : ComponentActivity() {
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
-                    Calibration.part = intent?.getIntExtra("part", -1) ?: -1
+                    intent ?: return
+                    if (intent.hasExtra("group")) {
+                        val g = intent.getStringExtra("group") ?: return
+                        Calibration.stanceOverrides[g] = floatArrayOf(
+                            intent.getFloatExtra("rx", 0f),
+                            intent.getFloatExtra("ry", 0f),
+                            intent.getFloatExtra("rz", 0f),
+                        )
+                    }
+                    if (intent.hasExtra("rootDy")) {
+                        Calibration.rootDy = intent.getFloatExtra("rootDy", 0f)
+                    }
+                    if (intent.hasExtra("reset")) {
+                        Calibration.stanceOverrides.clear()
+                        Calibration.rootDy = 0f
+                    }
+                    if (intent.hasExtra("part")) {
+                        Calibration.part = intent.getIntExtra("part", -1)
+                    }
                 }
             },
             IntentFilter("com.nervz.movementtrainer.CAL"),
