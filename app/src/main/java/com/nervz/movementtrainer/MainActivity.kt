@@ -204,7 +204,7 @@ private fun HistoryList(monitor: InputMonitor, modifier: Modifier) {
     LaunchedEffect(Unit) {
         while (true) {
             withFrameNanos { }
-            monitor.tick(SystemClock.uptimeMillis())
+            monitor.sample(SystemClock.uptimeMillis())
         }
     }
     LazyColumn(state = listState, modifier = modifier) {

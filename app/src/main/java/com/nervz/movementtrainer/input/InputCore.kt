@@ -1,7 +1,5 @@
 package com.nervz.movementtrainer.input
 
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -11,7 +9,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import com.nervz.movementtrainer.R
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 
 // P1-side convention: f(orward) = right on screen.
@@ -76,8 +73,7 @@ val TEKKEN_DEFAULT = mapOf(
     KeyEvent.KEYCODE_BUTTON_B to "4",
 )
 
-// Keyboard bridge: lets the emulator (which forwards host keyboard, not gamepads)
-// and pad-to-keyboard mappers drive the app. Arrows already arrive as KEYCODE_DPAD_*.
+// Keyboard bridge for emulator testing: arrows arrive as KEYCODE_DPAD_*.
 val KEYBOARD_TEKKEN = mapOf(
     KeyEvent.KEYCODE_U to "1",
     KeyEvent.KEYCODE_I to "2",
@@ -115,13 +111,14 @@ fun InputDevice.isGamepadLike(): Boolean =
     sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
         sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
 
-// One row = one input state (direction + held buttons), Tekken-style.
-// `frames` counts how many 60fps frames the state has been active, capped at 999.
-class HistoryRow(val startFrame: Long, val dir: Direction, val buttons: List<String>) {
+class HistoryRow(val dir: Direction, val buttons: List<String>) {
     val frames = mutableIntStateOf(1)
-    var closed = false
 }
 
+// Dead-simple input model, mirroring the game itself: input events ONLY update
+// the live pad state; a 60Hz sampler reads that state once per frame and
+// builds the history — what was held, and for how many frames. No debounce,
+// no filtering, no timing tricks anywhere.
 class InputMonitor {
     val devices = mutableStateListOf<String>()
     val rows = mutableStateListOf<HistoryRow>()
@@ -130,10 +127,7 @@ class InputMonitor {
     val movement = MovementState()
     val tech = TechEngine(movement)
 
-    private val epochMs = SystemClock.uptimeMillis()
     private val pressedButtons = sortedSetOf<String>()
-    private val handler = Handler(Looper.getMainLooper())
-    private val pendingKeyUp = HashMap<Int, Runnable>()
     private var keyLeft = false
     private var keyRight = false
     private var keyUp = false
@@ -142,6 +136,9 @@ class InputMonitor {
     private var hatY = 0f
     private var stickX = 0f
     private var stickY = 0f
+
+    private val epochMs = SystemClock.uptimeMillis()
+    private var lastFrame = 0L
 
     fun clear() {
         rows.clear()
@@ -175,73 +172,30 @@ class InputMonitor {
             }
             return true
         }
-        if (!isDpad && label == null) return true
-        if (!isPad) {
-            // Host keyboard auto-repeat reaches the guest as rapid release/press
-            // pairs; debounce releases so a held key reads as a continuous hold.
-            // Auto-repeat only starts after a long hold, so quick taps (mashing
-            // buttons, sidestep taps) release IMMEDIATELY and never merge.
-            // Real pads bypass all of this — their timing must stay raw.
-            if (down) {
-                val pending = pendingKeyUp.remove(event.keyCode)
-                if (pending != null) {
-                    handler.removeCallbacks(pending)
-                    return true
-                }
-            } else {
-                if (event.eventTime - event.downTime < 200) {
-                    applyKey(event.keyCode, false, event.eventTime, label, isDpad)
-                    return true
-                }
-                val t = event.eventTime
-                val code = event.keyCode
-                val r = Runnable {
-                    pendingKeyUp.remove(code)
-                    applyKey(code, false, t, label, isDpad)
-                }
-                pendingKeyUp[code] = r
-                handler.postDelayed(r, 50)
-                return true
-            }
+        when {
+            event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> keyLeft = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> keyRight = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_UP -> keyUp = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> keyDown = down
+            label != null -> if (down) pressedButtons.add(label) else pressedButtons.remove(label)
+            else -> return true
         }
-        applyKey(event.keyCode, down, event.eventTime, label, isDpad)
+        recomputeDirection()
         return true
-    }
-
-    private fun applyKey(keyCode: Int, down: Boolean, t: Long, label: String?, isDpad: Boolean) {
-        if (isDpad) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> keyLeft = down
-                KeyEvent.KEYCODE_DPAD_RIGHT -> keyRight = down
-                KeyEvent.KEYCODE_DPAD_UP -> keyUp = down
-                KeyEvent.KEYCODE_DPAD_DOWN -> keyDown = down
-            }
-            recomputeDirection(t)
-        } else if (label != null) {
-            if (down) pressedButtons.add(label) else pressedButtons.remove(label)
-            onInputChanged(t)
-        }
     }
 
     fun onMotion(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false
         if (event.action != MotionEvent.ACTION_MOVE) return false
-        for (h in 0 until event.historySize) processSample(event, h)
-        processSample(event, -1)
+        hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        stickX = event.getAxisValue(MotionEvent.AXIS_X)
+        stickY = event.getAxisValue(MotionEvent.AXIS_Y)
+        recomputeDirection()
         return true
     }
 
-    private fun processSample(event: MotionEvent, h: Int) {
-        fun axis(a: Int) = if (h >= 0) event.getHistoricalAxisValue(a, h) else event.getAxisValue(a)
-        val t = if (h >= 0) event.getHistoricalEventTime(h) else event.eventTime
-        hatX = axis(MotionEvent.AXIS_HAT_X)
-        hatY = axis(MotionEvent.AXIS_HAT_Y)
-        stickX = axis(MotionEvent.AXIS_X)
-        stickY = axis(MotionEvent.AXIS_Y)
-        recomputeDirection(t)
-    }
-
-    private fun recomputeDirection(t: Long) {
+    private fun recomputeDirection() {
         val x = when {
             abs(hatX) > 0.5f -> hatX
             keyLeft || keyRight -> (if (keyRight) 1f else 0f) - (if (keyLeft) 1f else 0f)
@@ -262,46 +216,30 @@ class InputMonitor {
         movement.heldDown = dir == Direction.D
         movement.crouching =
             dir == Direction.D || dir == Direction.DB || dir == Direction.DF
-        if (dir != direction.value) {
-            direction.value = dir
-            onInputChanged(t)
-        }
+        direction.value = dir
     }
 
-    private fun frameAt(t: Long) = (t - epochMs) * 60 / 1000
+    // The 60Hz sampler — call once per display frame; ticks are derived from
+    // the wall clock so display refresh rate and UI stalls don't skew counts.
+    fun sample(nowMs: Long) {
+        val frame = (nowMs - epochMs) * 60 / 1000
+        if (frame <= lastFrame) return
+        val ticks = (frame - lastFrame).toInt()
+        lastFrame = frame
 
-    // Inputs register on the NEXT frame boundary, mirroring the game's per-frame
-    // input sampling. A state lasting less than one frame is dropped — the game
-    // would never have sampled it either.
-    // Newest row lives at index 0 — each new state pushes the history down.
-    private fun onInputChanged(t: Long) {
         val dir = direction.value
         val buttons = pressedButtons.toList()
         val live = rows.firstOrNull()
-        if (live != null && !live.closed && live.dir == dir && live.buttons == buttons) return
-        val reg = frameAt(t) + 1
-        if (live != null && !live.closed) {
-            val finalCount = (reg - live.startFrame).toInt()
-            if (finalCount <= 0) {
-                rows.removeAt(0)
-                val prev = rows.firstOrNull()
-                if (prev != null && prev.dir == dir && prev.buttons == buttons) {
-                    prev.closed = false
-                    return
-                }
-            } else {
-                live.frames.intValue = min(999, finalCount)
-                live.closed = true
-                tech.onState(live.dir, live.buttons.isNotEmpty(), finalCount)
-            }
+        if (live != null && live.dir == dir && live.buttons == buttons) {
+            live.frames.intValue = min(999, live.frames.intValue + ticks)
+            return
         }
-        rows.add(0, HistoryRow(reg, dir, buttons))
+        if (live != null) {
+            tech.onState(live.dir, live.buttons.isNotEmpty(), live.frames.intValue)
+        } else if (dir == Direction.N && buttons.isEmpty()) {
+            return
+        }
+        rows.add(0, HistoryRow(dir, buttons).also { it.frames.intValue = min(999, ticks) })
         while (rows.size > 300) rows.removeAt(rows.size - 1)
-    }
-
-    fun tick(nowMs: Long) {
-        val live = rows.firstOrNull() ?: return
-        if (live.closed) return
-        live.frames.intValue = min(999L, max(1L, frameAt(nowMs) - live.startFrame + 1)).toInt()
     }
 }
