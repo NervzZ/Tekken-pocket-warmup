@@ -34,6 +34,8 @@ object Calibration {
     @Volatile var paused = false
     @Volatile var testPose = false
     @Volatile var tPose = false
+    @Volatile var headYaw = 0f
+    @Volatile var pelvisYaw = 0f
     @Volatile var rootDy = 0f
     val stanceOverrides = java.util.concurrent.ConcurrentHashMap<String, FloatArray>()
     @Volatile var autoStartNanos = 0L
@@ -77,10 +79,10 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
         // head has no ball joints to derive direction from; foot centroids are a
         // crude toe-direction proxy. Tuned live via adb, then baked here.
-        // ry SIGN: positive turns the face/toes toward the model's right —
-        // the head trim was negated for three iterations (user-caught).
+        // head yaw is tuned LIVE by the user (G/H keys) — remote screenshot
+        // judgment failed twice on its sign; feet +12 user-accepted.
         val TPOSE_TRIM: Map<String, FloatArray> = mapOf(
-            "HEAD" to floatArrayOf(-6f, 28f, 0f),
+            "HEAD" to floatArrayOf(-6f, 0f, 0f),
             "FOOT_A" to floatArrayOf(0f, 12f, 0f),
             "FOOT_B" to floatArrayOf(0f, 12f, 0f),
         )
@@ -252,6 +254,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private fun poseLayers(): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
         Calibration.tPose -> {
             val trim = HashMap(TPOSE_TRIM)
+            trim["HEAD"] = floatArrayOf(-6f, Calibration.headYaw, 0f)
+            trim["PELVIS"] = floatArrayOf(0f, Calibration.pelvisYaw, 0f)
             trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
@@ -282,7 +286,14 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Calibration.pauseNanos = 0L
             // paused doubles as the T-pose camera lock — only the tour resets it
             if (!Calibration.tPose) Calibration.paused = false
-            if (Calibration.display.value.isNotEmpty()) Calibration.display.value = ""
+            if (Calibration.tPose) {
+                Calibration.display.value =
+                    "head ry %.0f (G/H)   pelvis ry %.0f (B/N)".format(
+                        Calibration.headYaw, Calibration.pelvisYaw,
+                    )
+            } else if (Calibration.display.value.isNotEmpty()) {
+                Calibration.display.value = ""
+            }
             -1
         }
 
