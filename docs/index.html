@@ -27,15 +27,16 @@
     background:repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,255,255,.014) 2px 4px);
   }
   .ticker{
-    position:fixed; top:0; bottom:0; right:7vw; width:80px;
-    opacity:.16; overflow:hidden; pointer-events:none;
+    position:fixed; top:0; bottom:0; right:6vw; width:120px;
+    opacity:.22; overflow:hidden; pointer-events:none;
   }
   .ticker ul{ list-style:none; animation:scroll 16s linear infinite; }
   .ticker li{
-    height:54px; display:flex; align-items:center; gap:14px;
-    font-size:22px; border-bottom:1px solid var(--line);
+    height:72px; display:flex; align-items:center; gap:18px;
+    border-bottom:1px solid var(--line);
   }
-  .ticker li b{ font-weight:400; font-size:13px; color:var(--dim); }
+  .ticker li img{ height:42px; width:42px; image-rendering:auto; }
+  .ticker li b{ font-weight:400; font-size:17px; color:var(--dim); }
   @keyframes scroll{ to{ transform:translateY(-50%); } }
   header{ text-align:center; z-index:1; }
   .kicker{
@@ -64,10 +65,14 @@
 <body>
   <div class="ticker" aria-hidden="true">
     <ul>
-      <li>←<b>3</b></li><li>↙<b>1</b></li><li>←<b>4</b></li><li>↙<b>2</b></li>
-      <li>←<b>3</b></li><li>↙<b>1</b></li><li>←<b>5</b></li><li>↙<b>2</b></li>
-      <li>←<b>3</b></li><li>↙<b>1</b></li><li>←<b>4</b></li><li>↙<b>2</b></li>
-      <li>←<b>3</b></li><li>↙<b>1</b></li><li>←<b>5</b></li><li>↙<b>2</b></li>
+      <li><img src="assets/b.png" alt=""><b>3</b></li><li><img src="assets/db.png" alt=""><b>1</b></li>
+      <li><img src="assets/b.png" alt=""><b>4</b></li><li><img src="assets/db.png" alt=""><b>2</b></li>
+      <li><img src="assets/b.png" alt=""><b>3</b></li><li><img src="assets/db.png" alt=""><b>1</b></li>
+      <li><img src="assets/b.png" alt=""><b>5</b></li><li><img src="assets/db.png" alt=""><b>2</b></li>
+      <li><img src="assets/b.png" alt=""><b>3</b></li><li><img src="assets/db.png" alt=""><b>1</b></li>
+      <li><img src="assets/b.png" alt=""><b>4</b></li><li><img src="assets/db.png" alt=""><b>2</b></li>
+      <li><img src="assets/b.png" alt=""><b>3</b></li><li><img src="assets/db.png" alt=""><b>1</b></li>
+      <li><img src="assets/b.png" alt=""><b>5</b></li><li><img src="assets/db.png" alt=""><b>2</b></li>
     </ul>
   </div>
   <header>

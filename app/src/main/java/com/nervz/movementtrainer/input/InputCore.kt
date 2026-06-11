@@ -1,7 +1,5 @@
 package com.nervz.movementtrainer.input
 
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -10,8 +8,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import com.nervz.movementtrainer.R
+import com.nervz.movementtrainer.gfx.Calibration
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 
 // P1-side convention: f(orward) = right on screen.
@@ -76,13 +74,31 @@ val TEKKEN_DEFAULT = mapOf(
     KeyEvent.KEYCODE_BUTTON_B to "4",
 )
 
-// Keyboard bridge: lets the emulator (which forwards host keyboard, not gamepads)
-// and pad-to-keyboard mappers drive the app. Arrows already arrive as KEYCODE_DPAD_*.
+// Keyboard bridge for emulator testing: arrows arrive as KEYCODE_DPAD_*.
 val KEYBOARD_TEKKEN = mapOf(
     KeyEvent.KEYCODE_U to "1",
     KeyEvent.KEYCODE_I to "2",
     KeyEvent.KEYCODE_J to "3",
     KeyEvent.KEYCODE_K to "4",
+    KeyEvent.KEYCODE_1 to "1",
+    KeyEvent.KEYCODE_2 to "2",
+    KeyEvent.KEYCODE_3 to "3",
+    KeyEvent.KEYCODE_4 to "4",
+    KeyEvent.KEYCODE_NUMPAD_1 to "1",
+    KeyEvent.KEYCODE_NUMPAD_2 to "2",
+    KeyEvent.KEYCODE_NUMPAD_3 to "3",
+    KeyEvent.KEYCODE_NUMPAD_4 to "4",
+)
+
+// User-provided Tekken button-cluster icons; key = pressed buttons sorted, e.g. "12".
+val BUTTON_ICONS = mapOf(
+    "1" to R.drawable.btn_1, "2" to R.drawable.btn_2,
+    "3" to R.drawable.btn_3, "4" to R.drawable.btn_4,
+    "12" to R.drawable.btn_12, "13" to R.drawable.btn_13, "14" to R.drawable.btn_14,
+    "23" to R.drawable.btn_23, "24" to R.drawable.btn_24, "34" to R.drawable.btn_34,
+    "123" to R.drawable.btn_123, "124" to R.drawable.btn_124,
+    "134" to R.drawable.btn_134, "234" to R.drawable.btn_234,
+    "1234" to R.drawable.btn_1234,
 )
 
 val DPAD_KEYCODES = setOf(
@@ -96,23 +112,23 @@ fun InputDevice.isGamepadLike(): Boolean =
     sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
         sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
 
-// One row = one input state (direction + held buttons), Tekken-style.
-// `frames` counts how many 60fps frames the state has been active, capped at 999.
-class HistoryRow(val startFrame: Long, val dir: Direction, val buttons: List<String>) {
+class HistoryRow(val dir: Direction, val buttons: List<String>) {
     val frames = mutableIntStateOf(1)
-    var closed = false
 }
 
+// Dead-simple input model, mirroring the game itself: input events ONLY update
+// the live pad state; a 60Hz sampler reads that state once per frame and
+// builds the history — what was held, and for how many frames. No debounce,
+// no filtering, no timing tricks anywhere.
 class InputMonitor {
     val devices = mutableStateListOf<String>()
     val rows = mutableStateListOf<HistoryRow>()
     val direction = mutableStateOf(Direction.N)
     val side = mutableStateOf("P1")
+    val movement = MovementState()
+    val tech = TechEngine(movement)
 
-    private val epochMs = SystemClock.uptimeMillis()
     private val pressedButtons = sortedSetOf<String>()
-    private val handler = Handler(Looper.getMainLooper())
-    private val pendingKeyUp = HashMap<Int, Runnable>()
     private var keyLeft = false
     private var keyRight = false
     private var keyUp = false
@@ -122,8 +138,12 @@ class InputMonitor {
     private var stickX = 0f
     private var stickY = 0f
 
+    private val epochMs = SystemClock.uptimeMillis()
+    private var lastFrame = 0L
+
     fun clear() {
         rows.clear()
+        tech.resetStreaks()
     }
 
     fun refreshDevices() {
@@ -140,75 +160,94 @@ class InputMonitor {
         val label = TEKKEN_DEFAULT[event.keyCode] ?: KEYBOARD_TEKKEN[event.keyCode]
         val isStart = event.keyCode == KeyEvent.KEYCODE_BUTTON_START ||
             event.keyCode == KeyEvent.KEYCODE_SPACE
-        if (!isPad && !isDpad && label == null && !isStart && event.keyCode !in BUTTON_NAMES) return false
+        val isCalToggle = event.keyCode == KeyEvent.KEYCODE_C ||
+            event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
+        val isCalPause = event.keyCode == KeyEvent.KEYCODE_X
+        val isCalPose = event.keyCode == KeyEvent.KEYCODE_V
+        val isTPose = event.keyCode == KeyEvent.KEYCODE_T
+        val isTuneKey =
+            event.keyCode == KeyEvent.KEYCODE_G || event.keyCode == KeyEvent.KEYCODE_H ||
+                event.keyCode == KeyEvent.KEYCODE_B || event.keyCode == KeyEvent.KEYCODE_N ||
+                event.keyCode == KeyEvent.KEYCODE_Q || event.keyCode == KeyEvent.KEYCODE_W ||
+                event.keyCode == KeyEvent.KEYCODE_E || event.keyCode == KeyEvent.KEYCODE_R ||
+                event.keyCode == KeyEvent.KEYCODE_D || event.keyCode == KeyEvent.KEYCODE_F ||
+                event.keyCode == KeyEvent.KEYCODE_A || event.keyCode == KeyEvent.KEYCODE_S
+        if (!isPad && !isDpad && label == null && !isStart && !isCalToggle && !isCalPause &&
+            !isCalPose && !isTPose && !isTuneKey && event.keyCode !in BUTTON_NAMES
+        ) return false
         if (event.repeatCount > 0) return true
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return true
         val down = event.action == KeyEvent.ACTION_DOWN
-        if (isStart) {
-            if (down) side.value = if (side.value == "P1") "P2" else "P1"
+        if (isCalToggle) {
+            if (down) Calibration.auto = !Calibration.auto
             return true
         }
-        if (!isDpad && label == null) return true
-        if (!isPad) {
-            // Host keyboard auto-repeat reaches the guest as rapid release/press
-            // pairs; debounce releases so a held key reads as a continuous hold.
-            // Real pads bypass this — their timing must stay raw.
+        if (isCalPause) {
+            if (down && (Calibration.auto || Calibration.tPose)) {
+                Calibration.paused = !Calibration.paused
+            }
+            return true
+        }
+        if (isCalPose) {
+            if (down) Calibration.testPose = !Calibration.testPose
+            return true
+        }
+        if (isTPose) {
+            if (down) Calibration.tPose = !Calibration.tPose
+            return true
+        }
+        if (isTuneKey) {
             if (down) {
-                val pending = pendingKeyUp.remove(event.keyCode)
-                if (pending != null) {
-                    handler.removeCallbacks(pending)
-                    return true
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_G -> Calibration.headYaw -= 4f
+                    KeyEvent.KEYCODE_H -> Calibration.headYaw += 4f
+                    KeyEvent.KEYCODE_B -> Calibration.pelvisYaw -= 2f
+                    KeyEvent.KEYCODE_N -> Calibration.pelvisYaw += 2f
+                    KeyEvent.KEYCODE_Q -> Calibration.footAYaw -= 2f
+                    KeyEvent.KEYCODE_W -> Calibration.footAYaw += 2f
+                    KeyEvent.KEYCODE_E -> Calibration.footBYaw -= 2f
+                    KeyEvent.KEYCODE_R -> Calibration.footBYaw += 2f
+                    KeyEvent.KEYCODE_D -> Calibration.footBPitch -= 2f
+                    KeyEvent.KEYCODE_F -> Calibration.footBPitch += 2f
+                    KeyEvent.KEYCODE_A -> Calibration.footBRoll -= 2f
+                    KeyEvent.KEYCODE_S -> Calibration.footBRoll += 2f
                 }
-            } else {
-                val t = event.eventTime
-                val code = event.keyCode
-                val r = Runnable {
-                    pendingKeyUp.remove(code)
-                    applyKey(code, false, t, label, isDpad)
-                }
-                pendingKeyUp[code] = r
-                handler.postDelayed(r, 50)
-                return true
             }
+            return true
         }
-        applyKey(event.keyCode, down, event.eventTime, label, isDpad)
+        if (isStart) {
+            if (down) {
+                side.value = if (side.value == "P1") "P2" else "P1"
+                val p2 = side.value == "P2"
+                movement.facing = if (p2) -1 else 1
+                tech.setSide(p2)
+            }
+            return true
+        }
+        when {
+            event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> keyLeft = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> keyRight = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_UP -> keyUp = down
+            event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> keyDown = down
+            label != null -> if (down) pressedButtons.add(label) else pressedButtons.remove(label)
+            else -> return true
+        }
+        recomputeDirection()
         return true
-    }
-
-    private fun applyKey(keyCode: Int, down: Boolean, t: Long, label: String?, isDpad: Boolean) {
-        if (isDpad) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> keyLeft = down
-                KeyEvent.KEYCODE_DPAD_RIGHT -> keyRight = down
-                KeyEvent.KEYCODE_DPAD_UP -> keyUp = down
-                KeyEvent.KEYCODE_DPAD_DOWN -> keyDown = down
-            }
-            recomputeDirection(t)
-        } else if (label != null) {
-            if (down) pressedButtons.add(label) else pressedButtons.remove(label)
-            onInputChanged(t)
-        }
     }
 
     fun onMotion(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false
         if (event.action != MotionEvent.ACTION_MOVE) return false
-        for (h in 0 until event.historySize) processSample(event, h)
-        processSample(event, -1)
+        hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        stickX = event.getAxisValue(MotionEvent.AXIS_X)
+        stickY = event.getAxisValue(MotionEvent.AXIS_Y)
+        recomputeDirection()
         return true
     }
 
-    private fun processSample(event: MotionEvent, h: Int) {
-        fun axis(a: Int) = if (h >= 0) event.getHistoricalAxisValue(a, h) else event.getAxisValue(a)
-        val t = if (h >= 0) event.getHistoricalEventTime(h) else event.eventTime
-        hatX = axis(MotionEvent.AXIS_HAT_X)
-        hatY = axis(MotionEvent.AXIS_HAT_Y)
-        stickX = axis(MotionEvent.AXIS_X)
-        stickY = axis(MotionEvent.AXIS_Y)
-        recomputeDirection(t)
-    }
-
-    private fun recomputeDirection(t: Long) {
+    private fun recomputeDirection() {
         val x = when {
             abs(hatX) > 0.5f -> hatX
             keyLeft || keyRight -> (if (keyRight) 1f else 0f) - (if (keyLeft) 1f else 0f)
@@ -220,45 +259,46 @@ class InputMonitor {
             else -> stickY
         }
         val dir = directionFrom(x, y)
-        if (dir != direction.value) {
-            direction.value = dir
-            onInputChanged(t)
+        movement.heldX = when (dir) {
+            Direction.B, Direction.UB -> -1
+            Direction.F, Direction.UF -> 1
+            else -> 0
         }
+        movement.heldUp = dir == Direction.U
+        movement.heldUpward =
+            dir == Direction.U || dir == Direction.UB || dir == Direction.UF
+        movement.heldDown = dir == Direction.D
+        movement.crouching =
+            dir == Direction.D || dir == Direction.DB || dir == Direction.DF
+        direction.value = dir
     }
 
-    private fun frameAt(t: Long) = (t - epochMs) * 60 / 1000
+    // The 60Hz sampler — call once per display frame; ticks are derived from
+    // the wall clock so display refresh rate and UI stalls don't skew counts.
+    fun sample(nowMs: Long) {
+        val frame = (nowMs - epochMs) * 60 / 1000
+        if (frame <= lastFrame) return
+        val ticks = (frame - lastFrame).toInt()
+        lastFrame = frame
+        // streak timeouts run on the same 60Hz grid as everything else
+        tech.onTick(ticks)
 
-    // Inputs register on the NEXT frame boundary, mirroring the game's per-frame
-    // input sampling. A state lasting less than one frame is dropped — the game
-    // would never have sampled it either.
-    // Newest row lives at index 0 — each new state pushes the history down.
-    private fun onInputChanged(t: Long) {
         val dir = direction.value
         val buttons = pressedButtons.toList()
         val live = rows.firstOrNull()
-        if (live != null && !live.closed && live.dir == dir && live.buttons == buttons) return
-        val reg = frameAt(t) + 1
-        if (live != null && !live.closed) {
-            val finalCount = (reg - live.startFrame).toInt()
-            if (finalCount <= 0) {
-                rows.removeAt(0)
-                val prev = rows.firstOrNull()
-                if (prev != null && prev.dir == dir && prev.buttons == buttons) {
-                    prev.closed = false
-                    return
-                }
-            } else {
-                live.frames.intValue = min(999, finalCount)
-                live.closed = true
-            }
+        if (live != null && live.dir == dir && live.buttons == buttons) {
+            live.frames.intValue = min(999, live.frames.intValue + ticks)
+            return
         }
-        rows.add(0, HistoryRow(reg, dir, buttons))
+        if (live != null) {
+            tech.onState(live.dir, live.buttons.isNotEmpty(), live.frames.intValue)
+        } else if (dir == Direction.N && buttons.isEmpty()) {
+            return
+        }
+        // completions ending on a HELD input fire on the press, not the
+        // release — the validators see the new state the moment it opens
+        tech.onOpen(dir, buttons.isNotEmpty())
+        rows.add(0, HistoryRow(dir, buttons).also { it.frames.intValue = min(999, ticks) })
         while (rows.size > 300) rows.removeAt(rows.size - 1)
-    }
-
-    fun tick(nowMs: Long) {
-        val live = rows.firstOrNull() ?: return
-        if (live.closed) return
-        live.frames.intValue = min(999L, max(1L, frameAt(nowMs) - live.startFrame + 1)).toInt()
     }
 }

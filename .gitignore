@@ -7,3 +7,8 @@ local.properties
 .claude/
 signing/
 captures/
+model/
+CC-Session-Logs/
+
+# session debug screenshots land in the repo root
+/*.png
