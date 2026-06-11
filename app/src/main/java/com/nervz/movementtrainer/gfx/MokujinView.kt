@@ -67,17 +67,28 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // anchored back; the body yaw lives on the root. rx: + = backward
         // swing / forward torso hunch; arm ry/rz signs mirror per side.
         val STANCE_OFFSETS: Map<String, FloatArray> = mapOf(
-            "TORSO" to floatArrayOf(13f, 0f, 0f),
+            "TORSO" to floatArrayOf(5f, 0f, 0f),
             "HEAD" to floatArrayOf(-4f, 20f, 0f),
             // hips counter-rotate left: less twisted than the shoulders, so
             // the leg base doesn't convert stance depth into foot crossing
             "PELVIS" to floatArrayOf(0f, 12f, 0f),
-            "THIGH_B" to floatArrayOf(-16f, 0f, 20f),
-            "SHIN_B" to floatArrayOf(36f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-20f, 0f, -20f),
-            "THIGH_A" to floatArrayOf(8f, 0f, -22f),
-            "SHIN_A" to floatArrayOf(26f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-34f, -20f, 22f),
+            // per-leg sagittal sums (thigh+shin+foot rx) must stay 0 so the
+            // soles sit flat; lead leg reaches forward, rear stays near-under
+            "THIGH_B" to floatArrayOf(-38f, 0f, 26f),
+            "SHIN_B" to floatArrayOf(52f, 0f, 0f),
+            // FOOT trims are SOLVED, not hand-tuned: each keeps the foot's
+            // approved WORLD orientation (lead toe +28 world-yaw open of the
+            // body blade, soles flat) under the current leg chain — re-run
+            // model/solve_stance_widen.py after ANY thigh/shin change
+            "FOOT_B" to floatArrayOf(-5.1f, 22.9f, -19.1f),
+            // rear leg solved by position-target IK (model/solve_rear_leg_ik.py):
+            // ankle 12cm forward of the v7 plant (18.5cm -> 6.5cm behind the
+            // hip), knee pole CONSTRAINED to body-forward (anatomical bend) —
+            // hand-nudging these Eulers leaks sideways through the tilted
+            // chain, and an unconstrained pole can reverse the knee
+            "THIGH_A" to floatArrayOf(-14.0f, 7.1f, -25.7f),
+            "SHIN_A" to floatArrayOf(24.5f, -0.6f, 4.3f),
+            "FOOT_A" to floatArrayOf(-10.8f, -20.6f, 27.2f),
             "UARM_B" to floatArrayOf(0f, -22f, -92f),
             "FARM_B" to floatArrayOf(0f, -85f, 95f),
             "UARM_A" to floatArrayOf(0f, 25f, 102f),
@@ -102,6 +113,16 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Triple("ankle_L", "SHIN_B", rigPivot("FOOT_B")),
             Triple("ankle_R", "SHIN_A", rigPivot("FOOT_A")),
             Triple("head_top", "HEAD", floatArrayOf(0f, 1.75f, 0f)),
+            // toe landmarks 0.3 along each foot's AUTHORED toe axis (from
+            // mokujin_parts.json, horizontal — the mesh is authored in a
+            // stance so model +z is NOT the toe axis); (toe - ankle) in a
+            // dump = the foot's true world heading + sole pitch
+            Triple("toe_L", "FOOT_B", rigPivot("FOOT_B").let {
+                floatArrayOf(it[0] + 0.1112f, it[1], it[2] + 0.2786f)
+            }),
+            Triple("toe_R", "FOOT_A", rigPivot("FOOT_A").let {
+                floatArrayOf(it[0] + 0.0987f, it[1], it[2] + 0.2833f)
+            }),
         )
 
         // Hand-tuned corrections on top of the analytical T-pose (Euler rx,ry,rz):
@@ -202,6 +223,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         Choreographer.getInstance().postFrameCallback(object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
                 Choreographer.getInstance().postFrameCallback(this)
+                // surface gone (3D disabled / backgrounded): skip the pose
+                // math too, the whole layer must cost ~nothing
+                if (swapChain == null) return
                 asset?.let { a ->
                     applyRigPose(frameTimeNanos)
                     updateRootTransform(a, frameTimeNanos)
@@ -334,9 +358,10 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         tSec: Double,
         includeIdle: Boolean,
     ): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
+        // the T-pose is the LOCKED neutral reference — live stance overrides
+        // must never reach it (they used to leak in here and corrupt the view)
         Calibration.tPose -> {
             val trim = tposeTrims()
-            trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
         Calibration.testPose -> emptyMap<String, FloatArray>() to emptyMap()
@@ -492,7 +517,10 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Calibration.tPose && Calibration.paused -> 0f   // locked facing the camera
             Calibration.auto || Calibration.tPose ->
                 (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
-            else -> (BASE_YAW_DEG + STANCE_BODY_YAW) * sim.facingF
+            // base yaw flips with the side; the stance blade rides ON TOP so
+            // P1->P2 is an exact 180. Multiplying the sum by facing flipped
+            // the blade too: P2 ended up -68 vs +68 = 136 deg (user-caught)
+            else -> BASE_YAW_DEG * sim.facingF + STANCE_BODY_YAW
         }
         val inStance = !Calibration.testPose && !Calibration.tPose
         val dy = if (inStance) Calibration.rootDy else 0f

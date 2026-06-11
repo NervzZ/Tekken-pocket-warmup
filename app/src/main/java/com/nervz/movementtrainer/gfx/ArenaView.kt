@@ -111,8 +111,9 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, gridLineCount * 2)
         GLES20.glDisableVertexAttribArray(aPos)
 
-        // blob shadow under the character + the pivot dot
-        part(0f, 0.022f, 0f, 0.8f, 0.02f, 0.55f, 0.02f, 0.03f, 0.04f, 0.55f)
+        // ground-contact reference dots: character (char space origin) and
+        // the orbit pivot — the square blob shadow is gone (user request)
+        part(0f, 0.03f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f)
         part(sim.facingF * sim.dist, 0.03f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f)
     }
 

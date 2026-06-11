@@ -13,6 +13,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -146,12 +151,19 @@ fun MonitorScreen(monitor: InputMonitor) {
                 )
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     val sim = remember { ArenaSim(monitor.movement) }
+                    var show3d by remember { mutableStateOf(true) }
+                    // visibility (not removal) so the Filament engine and GL
+                    // context survive the toggle; GONE destroys the surfaces,
+                    // which stops all GPU work, and the frame loops early-out
+                    val vis = if (show3d) android.view.View.VISIBLE else android.view.View.GONE
                     AndroidView(
                         factory = { ctx -> ArenaView(ctx, sim) },
+                        update = { it.visibility = vis },
                         modifier = Modifier.fillMaxSize(),
                     )
                     AndroidView(
                         factory = { ctx -> MokujinView(ctx, sim) },
+                        update = { it.visibility = vis },
                         modifier = Modifier.fillMaxSize(),
                     )
                     HistoryList(
@@ -179,10 +191,53 @@ fun MonitorScreen(monitor: InputMonitor) {
                             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
                         )
                     }
+                    FpsCounter(
+                        Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 8.dp),
+                    )
+                    Text(
+                        if (show3d) "tap to disable 3D" else "tap to enable 3D",
+                        color = DimText,
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 8.dp)
+                            .clickable { show3d = !show3d },
+                    )
                 }
             }
         }
     }
+}
+
+// Measures real display frame delivery on the Compose frame clock: n frame
+// intervals over their summed duration, refreshed ~4x/s. UI-thread jank and
+// missed vsyncs lower it — exactly what "can this phone hold 60" needs.
+@Composable
+private fun FpsCounter(modifier: Modifier) {
+    var fps by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var last = withFrameNanos { it }
+        var acc = 0L
+        var n = 0
+        while (true) {
+            val t = withFrameNanos { it }
+            acc += t - last
+            last = t
+            n++
+            if (acc >= 250_000_000L) {
+                fps = n * 1e9f / acc
+                acc = 0L
+                n = 0
+            }
+        }
+    }
+    Text(
+        "%.1f fps".format(fps),
+        color = DimText,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 11.sp,
+        modifier = modifier,
+    )
 }
 
 @Composable
