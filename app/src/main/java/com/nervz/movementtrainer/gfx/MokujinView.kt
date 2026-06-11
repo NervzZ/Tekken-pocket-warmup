@@ -442,14 +442,16 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // the push fires on frame 0 and the left foot is off near-instantly;
         // all foot action lives inside the f0-19 movement window, the
         // recovery frames are posture settle only (user spec)
+        // all offsets reach zero by ~u0.54: once the step is done the pose
+        // IS the breathing idle for the rest of the recovery — no settle
+        // layer (a late torso forward-tilt read as a janky spring-back bob)
         val push = bump(u, 0.00f, 0.28f)    // instant left-leg drive (heel-up)
         val liftA = bump(u, 0.02f, 0.28f)   // right foot steps back, grounded ~f10
         val liftB = bump(u, 0.24f, 0.54f)   // left foot right behind it, lands ~f18
-        val settle = bump(u, 0.75f, 1.00f)  // small final settle
         animHopY = 0f
 
-        val thighA = 6f * liftA - 2f * settle
-        val shinA = 22f * liftA + 5f * settle
+        val thighA = 6f * liftA
+        val shinA = 22f * liftA
         val thighB = 5f * push - 6f * liftB
         val shinB = -10f * push + 18f * liftB
         return mapOf(
@@ -460,7 +462,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
             // 0.5 comp leaves a heel-up residual on the pushing foot
             "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.5f, 0f, 0f),
-            "TORSO" to floatArrayOf(-6f * push + 3f * settle, 0f, 0f),
+            "TORSO" to floatArrayOf(-6f * push, 0f, 0f),
             "HEAD" to floatArrayOf(3f * push, 0f, 0f),
             "PELVIS" to floatArrayOf(0f, -3f * push, 0f),
         )
