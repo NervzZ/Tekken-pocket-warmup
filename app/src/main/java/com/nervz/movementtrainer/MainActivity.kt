@@ -99,6 +99,11 @@ class MainActivity : ComponentActivity() {
                     if (intent.hasExtra("dump")) {
                         Calibration.dumpPose = true
                     }
+                    // debug: inject tech events without the input pipeline
+                    // (adb keyevents can't produce validator-legal timings)
+                    when (intent.getStringExtra("event")) {
+                        "backdash" -> monitor.movement.backdashes.incrementAndGet()
+                    }
                 }
             },
             IntentFilter("com.nervz.movementtrainer.CAL"),

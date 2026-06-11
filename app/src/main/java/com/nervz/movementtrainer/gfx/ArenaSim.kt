@@ -15,9 +15,13 @@ import kotlin.math.sin
 //   IDLE     — battle stance + breathing/bob (pose lives in MokujinView)
 //   WALK_F   — slow walk toward the opponent
 //   WALK_B   — slower walk away (Tekken: backward walk < forward walk)
+//   BACKDASH — two quick back inputs; 34 frames, displacement front-loaded
+//              into the first 19 (the rest is recovery). A new backdash
+//              event RESTARTS the state (provisional chain rule until the
+//              KBD cancel rules are specified).
 class ArenaSim(private val movement: MovementState) {
 
-    enum class MoveState { IDLE, WALK_F, WALK_B }
+    enum class MoveState { IDLE, WALK_F, WALK_B, BACKDASH }
 
     var orbitAng = 0f; private set
     var dist = 3.4f; private set
@@ -25,6 +29,8 @@ class ArenaSim(private val movement: MovementState) {
     private var camX = 0.4f
     private var camZoom = 1.7f
     private var walkAmt = 0f
+    private var seenBd = 0
+    private var bdT = 0f
 
     // outputs shared with the Filament layer
     @Volatile var camEyeX = 2.5f
@@ -36,25 +42,51 @@ class ArenaSim(private val movement: MovementState) {
     @Volatile var walkPhase = 0f     // radians; one 2*PI cycle = 2 steps
     @Volatile var walkAmount = 0f    // 0..1 idle->walk blend
     @Volatile var walkDir = 0f       // smoothed +1 fwd / -1 back (anim blend)
+    @Volatile var bdProgress = -1f   // backdash 0..1, or -1 when inactive
     private var dirSm = 0f
 
     fun step(dt: Float) {
         val facing = movement.facing
         facingF = facing.toFloat()
 
+        // backdash event (two quick back inputs, side-aware tech engine);
+        // a fresh event (re)starts the state
+        val bdCount = movement.backdashes.get()
+        while (seenBd < bdCount) {
+            seenBd++
+            state = MoveState.BACKDASH
+            bdT = 0f
+        }
+        if (state == MoveState.BACKDASH) {
+            val uPrev = (bdT / BACKDASH_DUR).coerceAtMost(1f)
+            bdT += dt
+            val u = (bdT / BACKDASH_DUR).coerceAtMost(1f)
+            dist += (bdDisp(u) - bdDisp(uPrev)) * BACKDASH_DIST
+            bdProgress = u
+            if (bdT >= BACKDASH_DUR) {
+                state = MoveState.IDLE
+                bdProgress = -1f
+            }
+        } else {
+            bdProgress = -1f
+        }
+
         // walking is slow in Tekken, and backward slower than forward
         val relDir = movement.heldX * facing   // +1 = toward the opponent
-        state = when (relDir) {
-            1 -> MoveState.WALK_F
-            -1 -> MoveState.WALK_B
-            else -> MoveState.IDLE
+        var speed = 0f
+        if (state != MoveState.BACKDASH) {
+            state = when (relDir) {
+                1 -> MoveState.WALK_F
+                -1 -> MoveState.WALK_B
+                else -> MoveState.IDLE
+            }
+            speed = when (state) {              // signed, relative-forward
+                MoveState.WALK_F -> WALK_FWD_SPEED
+                MoveState.WALK_B -> -WALK_BACK_SPEED
+                else -> 0f
+            }
+            dist -= speed * dt
         }
-        val speed = when (state) {              // signed, relative-forward
-            MoveState.WALK_F -> WALK_FWD_SPEED
-            MoveState.WALK_B -> -WALK_BACK_SPEED
-            MoveState.IDLE -> 0f
-        }
-        dist -= speed * dt
         dist = dist.coerceIn(1.1f, 5.5f)
 
         // anim drive: phase advances with signed speed (backward walks the
@@ -68,7 +100,9 @@ class ArenaSim(private val movement: MovementState) {
         }
         walkDir = dirSm
         val target = if (speed != 0f) 1f else 0f
-        walkAmt += (target - walkAmt) * min(1f, dt * 7f)
+        // ease the walk layer out fast when a backdash takes over
+        val ease = if (state == MoveState.BACKDASH) 14f else 7f
+        walkAmt += (target - walkAmt) * min(1f, dt * ease)
         walkAmount = walkAmt
 
         // camera
@@ -80,6 +114,18 @@ class ArenaSim(private val movement: MovementState) {
         camEyeY = 2.4f * camZoom
         camEyeZ = 11.2f * camZoom
         camCtrX = camX
+    }
+
+    // cumulative backdash displacement fraction: ease-out covers 88% of the
+    // distance inside the first 19/34 frames, the rest drifts out in recovery
+    private fun bdDisp(u: Float): Float {
+        val u1 = 19f / 34f
+        return if (u < u1) {
+            val k = 1f - u / u1
+            BD_MOVE_SPLIT * (1f - k * k * k)
+        } else {
+            BD_MOVE_SPLIT + (1f - BD_MOVE_SPLIT) * (u - u1) / (1f - u1)
+        }
     }
 
     // R_y(a) maps polar angle phi -> phi - a; the char->pivot direction sits
@@ -97,5 +143,8 @@ class ArenaSim(private val movement: MovementState) {
         const val WALK_BACK_SPEED = 0.55f
         const val WALK_STRIDE_FWD = 0.30f   // units per step (sets cadence)
         const val WALK_STRIDE_BACK = 0.22f  // shorter, less covering steps
+        const val BACKDASH_DUR = 34f / 60f  // 34 frames
+        const val BACKDASH_DIST = 0.60f     // arena units covered
+        const val BD_MOVE_SPLIT = 0.88f     // share of distance in frames 0-19
     }
 }

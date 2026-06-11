@@ -107,6 +107,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
+        const val BD_HOP_Y = 0.045f         // backdash hop height (world units)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -173,6 +174,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private var rig: List<GroupInstance> = emptyList()
     private val groupWorld = HashMap<String, FloatArray>()
     private val footComp = floatArrayOf(0f, 0f, 0f)
+    private var animHopY = 0f
     private val rootM = FloatArray(16)
     private val m = FloatArray(16)
     private val scratch = FloatArray(16)
@@ -380,6 +382,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             if (includeIdle) {
                 sumInto(trim, idleOffsets(tSec))
                 sumInto(trim, walkOffsets())
+                sumInto(trim, backdashOffsets())
             }
             sumInto(trim, Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
@@ -418,6 +421,45 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         out["HEAD"] = floatArrayOf(3f * bk * amt, 0f, 0f)
         out["PELVIS"] = floatArrayOf(0f, 2.2f * kotlin.math.sin(p) * amt, 0f)
         return out
+    }
+
+    // half-sine envelope over the window [a, b] of normalized progress u
+    private fun bump(u: Float, a: Float, b: Float): Float =
+        if (u <= a || u >= b) 0f
+        else kotlin.math.sin(Math.PI.toFloat() * (u - a) / (b - a))
+
+    // Backdash (34f): weight loads onto the lead/left (B) foot, the right
+    // (A) foot lifts and tucks, the left leg extends into the push and the
+    // body takes a small hop backwards; recovery (last ~15f) replants the
+    // right foot and settles through a knee dip back into the stance. The
+    // hop itself is a root-y channel added AFTER the foot seat (animHopY).
+    private fun backdashOffsets(): Map<String, FloatArray> {
+        val u = sim.bdProgress
+        if (u < 0f) {
+            animHopY = 0f
+            return emptyMap()
+        }
+        val lift = bump(u, 0.04f, 0.72f)    // right foot up + tucked
+        val push = bump(u, 0.00f, 0.50f)    // left leg drive
+        val land = bump(u, 0.56f, 0.95f)    // recovery settle dip
+        animHopY = BD_HOP_Y * bump(u, 0.10f, 0.55f)
+
+        val thighA = -14f * lift - 4f * land
+        val shinA = 32f * lift + 8f * land
+        val thighB = 6f * push - 4f * land
+        val shinB = -12f * push + 8f * land
+        return mapOf(
+            "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
+            "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-(thighA + shinA) * 0.6f, 0f, 0f),
+            "THIGH_B" to floatArrayOf(thighB, 0f, 0f),
+            "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
+            // 0.5 comp leaves a heel-up residual on the pushing foot
+            "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.5f, 0f, 0f),
+            "TORSO" to floatArrayOf(-6f * push + 4f * land, 0f, 0f),
+            "HEAD" to floatArrayOf(3f * push - 2f * land, 0f, 0f),
+            "PELVIS" to floatArrayOf(0f, -3f * push, 0f),
+        )
     }
 
     // builds the hierarchical group-world chains for a pose into `out`
@@ -572,7 +614,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             else -> BASE_YAW_DEG * sim.facingF + STANCE_BODY_YAW
         }
         val inStance = !Calibration.testPose && !Calibration.tPose
-        val dy = if (inStance) Calibration.rootDy else 0f
+        // animHopY rides on top of the foot seat so hops can leave the ground
+        val dy = if (inStance) Calibration.rootDy + animHopY else 0f
         Matrix.setIdentityM(m, 0)
         Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
