@@ -162,7 +162,8 @@ class InputMonitor {
             event.keyCode == KeyEvent.KEYCODE_SPACE
         val isCalToggle = event.keyCode == KeyEvent.KEYCODE_C ||
             event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
-        if (!isPad && !isDpad && label == null && !isStart && !isCalToggle &&
+        val isCalPause = event.keyCode == KeyEvent.KEYCODE_X
+        if (!isPad && !isDpad && label == null && !isStart && !isCalToggle && !isCalPause &&
             event.keyCode !in BUTTON_NAMES
         ) return false
         if (event.repeatCount > 0) return true
@@ -170,6 +171,10 @@ class InputMonitor {
         val down = event.action == KeyEvent.ACTION_DOWN
         if (isCalToggle) {
             if (down) Calibration.auto = !Calibration.auto
+            return true
+        }
+        if (isCalPause) {
+            if (down && Calibration.auto) Calibration.paused = !Calibration.paused
             return true
         }
         if (isStart) {

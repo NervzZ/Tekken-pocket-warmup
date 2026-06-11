@@ -31,7 +31,9 @@ import java.nio.ByteOrder
 object Calibration {
     @Volatile var part = -1
     @Volatile var auto = false
+    @Volatile var paused = false
     @Volatile var autoStartNanos = 0L
+    @Volatile var pauseNanos = 0L
     val display = androidx.compose.runtime.mutableStateOf("")
 
     val PART_NAMES = listOf(
@@ -202,12 +204,22 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private fun applyCalibration(frameTimeNanos: Long) {
         val sel = if (Calibration.auto) {
             if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
-            val elapsed = (frameTimeNanos - Calibration.autoStartNanos) / 1_000_000_000.0
+            if (Calibration.paused) {
+                if (Calibration.pauseNanos == 0L) Calibration.pauseNanos = frameTimeNanos
+            } else if (Calibration.pauseNanos != 0L) {
+                Calibration.autoStartNanos += frameTimeNanos - Calibration.pauseNanos
+                Calibration.pauseNanos = 0L
+            }
+            val effectiveNow = if (Calibration.paused) Calibration.pauseNanos else frameTimeNanos
+            val elapsed = (effectiveNow - Calibration.autoStartNanos) / 1_000_000_000.0
             val idx = ((elapsed / 2.5) % Calibration.PART_NAMES.size).toInt()
-            Calibration.display.value = "part $idx — ${Calibration.PART_NAMES[idx]}"
+            val pauseTag = if (Calibration.paused) "  [PAUSED — X resumes]" else ""
+            Calibration.display.value = "part $idx — ${Calibration.PART_NAMES[idx]}$pauseTag"
             idx
         } else {
             Calibration.autoStartNanos = 0L
+            Calibration.pauseNanos = 0L
+            Calibration.paused = false
             if (Calibration.display.value.isNotEmpty()) Calibration.display.value = ""
             Calibration.part
         }
@@ -225,18 +237,16 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         }
     }
 
+    // No root-motion fakery: the model only gets its facing yaw (or the tour
+    // spin) plus scale/centering. All movement animation will be done at the
+    // part level once the rig mapping is known.
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
-        val f = sim.facingF
-        // during the calibration tour the model spins so no part stays hidden
         val yaw = if (Calibration.auto) {
             (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
         } else {
-            BASE_YAW_DEG * f + sim.charTwist * f
+            BASE_YAW_DEG * sim.facingF
         }
-        // T(root motion) * Rz(world-frame lean) * Ry(yaw) * S * T(center fix)
         Matrix.setIdentityM(m, 0)
-        Matrix.translateM(m, 0, 0f, sim.charHopY - 0.30f * sim.charCrouch, 0f)
-        Matrix.rotateM(m, 0, -sim.charLean * f, 0f, 0f, 1f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
         Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)
