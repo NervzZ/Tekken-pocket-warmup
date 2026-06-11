@@ -67,25 +67,25 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // anchored back; the body yaw lives on the root. rx: + = backward
         // swing / forward torso hunch; arm ry/rz signs mirror per side.
         val STANCE_OFFSETS: Map<String, FloatArray> = mapOf(
-            "TORSO" to floatArrayOf(8f, 0f, 0f),
-            "HEAD" to floatArrayOf(0f, 20f, 0f),
+            "TORSO" to floatArrayOf(13f, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f, 20f, 0f),
             // hips counter-rotate left: less twisted than the shoulders, so
             // the leg base doesn't convert stance depth into foot crossing
             "PELVIS" to floatArrayOf(0f, 12f, 0f),
             "THIGH_B" to floatArrayOf(-16f, 0f, 20f),
-            "SHIN_B" to floatArrayOf(30f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-14f, 0f, -20f),
+            "SHIN_B" to floatArrayOf(36f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-20f, 0f, -20f),
             "THIGH_A" to floatArrayOf(8f, 0f, -22f),
-            "SHIN_A" to floatArrayOf(20f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-28f, -20f, 22f),
+            "SHIN_A" to floatArrayOf(26f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-34f, -20f, 22f),
             "UARM_B" to floatArrayOf(0f, -22f, -92f),
             "FARM_B" to floatArrayOf(0f, -85f, 95f),
             "UARM_A" to floatArrayOf(0f, 25f, 102f),
             "FARM_A" to floatArrayOf(0f, 95f, -100f),
         )
         const val STANCE_BODY_YAW = -22f
-        const val STANCE_ROOT_DY = -0.12f
-        const val STANCE_ROOT_DZ = -0.08f   // hips pushed back (model -z)
+        const val STANCE_ROOT_DZ = -0.12f   // hips pushed back (model -z)
+        const val ANKLE_REST_Y = 0.083f     // ankle-ball height with sole flat
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -141,6 +141,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
 
     private var rig: List<GroupInstance> = emptyList()
     private val groupWorld = HashMap<String, FloatArray>()
+    private val refWorld = HashMap<String, FloatArray>()
+    private val footComp = floatArrayOf(0f, 0f, 0f)
+    private val rootM = FloatArray(16)
     private val m = FloatArray(16)
     private val scratch = FloatArray(16)
 
@@ -202,6 +205,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 asset?.let { a ->
                     applyRigPose(frameTimeNanos)
                     updateRootTransform(a, frameTimeNanos)
+                    dumpProbeIfRequested()
                 }
                 camera.lookAt(
                     sim.camEyeX.toDouble(), sim.camEyeY.toDouble(), sim.camEyeZ.toDouble(),
@@ -298,17 +302,13 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         }
     }
 
-    private var idleDy = 0f
-
     // Idle layered on the stance: heavy breathing (slow, torso/arms/head)
-    // + knee-flex bob (the whole body rides the flex up and down).
+    // + knee-flex bob. The body's rise/fall comes from the foot-pinning
+    // compensation in applyRigPose — never from a hand-tuned root offset.
     private fun idleOffsets(tSec: Double): Map<String, FloatArray> {
         val bob = (1.0 - kotlin.math.cos(tSec * 2.0 * Math.PI * 0.85)).toFloat() / 2f
         val breath = kotlin.math.sin(tSec * 2.0 * Math.PI * 0.30).toFloat()
         val flex = 6f * bob
-        // root drop matched to the leg-chain shortening from the knee flex so
-        // the feet stay planted (probe-verified, render units)
-        idleDy = -0.011f * bob
         return mapOf(
             "SHIN_B" to floatArrayOf(flex, 0f, 0f),
             "SHIN_A" to floatArrayOf(flex * 1.05f, 0f, 0f),
@@ -330,29 +330,79 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     // Base values: size 3 = Euler (rx,ry,rz), size 4 = axis-angle. Trim
     // values: Euler, applied BEFORE the base rotation at the same pivot
     // (model-frame semantics).
-    private fun poseLayers(tSec: Double): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
+    private fun poseLayers(
+        tSec: Double,
+        includeIdle: Boolean,
+    ): Pair<Map<String, FloatArray>, Map<String, FloatArray>> = when {
         Calibration.tPose -> {
-            idleDy = 0f
             val trim = tposeTrims()
             trim.putAll(Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
-        Calibration.testPose -> {
-            idleDy = 0f
-            emptyMap<String, FloatArray>() to emptyMap()
-        }
+        Calibration.testPose -> emptyMap<String, FloatArray>() to emptyMap()
         else -> {
             val trim = tposeTrims()
             sumInto(trim, STANCE_OFFSETS)
-            sumInto(trim, idleOffsets(tSec))
+            if (includeIdle) sumInto(trim, idleOffsets(tSec))
             sumInto(trim, Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
     }
 
+    // builds the hierarchical group-world chains for a pose into `out`
+    private fun computeChains(
+        angles: Map<String, FloatArray>,
+        trims: Map<String, FloatArray>,
+        tourSel: Int,
+        out: HashMap<String, FloatArray>,
+    ) {
+        out.clear()
+        for ((index, rt) in rig.withIndex()) {
+            val g = rt.group
+            val local = FloatArray(16)
+            Matrix.setIdentityM(local, 0)
+            Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
+            // trim FIRST so its axes mean model axes regardless of the base
+            val t = trims[g.name]
+            if (t != null && t.size >= 3) {
+                if (t[1] != 0f) Matrix.rotateM(local, 0, t[1], 0f, 1f, 0f)
+                if (t[0] != 0f) Matrix.rotateM(local, 0, t[0], 1f, 0f, 0f)
+                if (t[2] != 0f) Matrix.rotateM(local, 0, t[2], 0f, 0f, 1f)
+            }
+            val a = angles[g.name]
+            if (a != null) {
+                if (a.size == 4) {
+                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], a[1], a[2], a[3])
+                } else {
+                    if (a[1] != 0f) Matrix.rotateM(local, 0, a[1], 0f, 1f, 0f)
+                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
+                    if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
+                }
+            }
+            if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
+            Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
+            val world = if (g.parent != null) {
+                val pw = out[g.parent]
+                if (pw != null) {
+                    FloatArray(16).also { Matrix.multiplyMM(it, 0, pw, 0, local, 0) }
+                } else local
+            } else {
+                local
+            }
+            out[g.name] = world
+        }
+    }
+
+    private fun transformPoint(w: FloatArray, p: FloatArray, out: FloatArray) {
+        out[0] = w[0] * p[0] + w[4] * p[1] + w[8] * p[2] + w[12]
+        out[1] = w[1] * p[0] + w[5] * p[1] + w[9] * p[2] + w[13]
+        out[2] = w[2] * p[0] + w[6] * p[1] + w[10] * p[2] + w[14]
+    }
+
     private fun applyRigPose(frameTimeNanos: Long) {
         val tm = engine.transformManager
-        val (angles, trims) = poseLayers(frameTimeNanos / 1_000_000_000.0)
+        val tSec = frameTimeNanos / 1_000_000_000.0
+        val (angles, trims) = poseLayers(tSec, includeIdle = true)
 
         val tourSel = if (Calibration.auto) {
             if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
@@ -386,60 +436,55 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             -1
         }
 
-        groupWorld.clear()
-        for ((index, rt) in rig.withIndex()) {
-            val g = rt.group
-            val local = FloatArray(16)
-            Matrix.setIdentityM(local, 0)
-            Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
-            // trim FIRST so its axes mean model axes regardless of the base
-            // rotation (applying it after warped the feet trims into roll)
-            val t = trims[g.name]
-            if (t != null && t.size >= 3) {
-                if (t[1] != 0f) Matrix.rotateM(local, 0, t[1], 0f, 1f, 0f)
-                if (t[0] != 0f) Matrix.rotateM(local, 0, t[0], 1f, 0f, 0f)
-                if (t[2] != 0f) Matrix.rotateM(local, 0, t[2], 0f, 0f, 1f)
+        computeChains(angles, trims, tourSel, groupWorld)
+
+        // foot pin: horizontally, ankles stay where the STATIC stance puts
+        // them (idle displacement cancelled at the root); vertically, the
+        // ankle height is seated absolutely at the ankle-ball rest height,
+        // so the stance self-seats on the floor no matter how deep it gets
+        val inStance = !Calibration.tPose && !Calibration.testPose
+        if (inStance) {
+            val (refAngles, refTrims) = poseLayers(tSec, includeIdle = false)
+            computeChains(refAngles, refTrims, -1, refWorld)
+            val cur = FloatArray(3)
+            val ref = FloatArray(3)
+            footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
+            for (side in arrayOf("A", "B")) {
+                val ankle = rigPivot("FOOT_$side")
+                transformPoint(groupWorld["SHIN_$side"]!!, ankle, cur)
+                transformPoint(refWorld["SHIN_$side"]!!, ankle, ref)
+                footComp[0] += (cur[0] - ref[0]) / 2f
+                footComp[1] += (cur[1] - ANKLE_REST_Y) / 2f
+                footComp[2] += (cur[2] - ref[2]) / 2f
             }
-            val a = angles[g.name]
-            if (a != null) {
-                if (a.size == 4) {
-                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], a[1], a[2], a[3])
-                } else {
-                    if (a[1] != 0f) Matrix.rotateM(local, 0, a[1], 0f, 1f, 0f)
-                    if (a[0] != 0f) Matrix.rotateM(local, 0, a[0], 1f, 0f, 0f)
-                    if (a[2] != 0f) Matrix.rotateM(local, 0, a[2], 0f, 0f, 1f)
-                }
-            }
-            if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
-            Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
-            val world = if (g.parent != null) {
-                val pw = groupWorld[g.parent]
-                if (pw != null) {
-                    FloatArray(16).also { Matrix.multiplyMM(it, 0, pw, 0, local, 0) }
-                } else local
-            } else {
-                local
-            }
-            groupWorld[g.name] = world
+        } else {
+            footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
+        }
+
+        for (rt in rig) {
+            val world = groupWorld[rt.group.name] ?: continue
             for (i in rt.entities.indices) {
                 Matrix.multiplyMM(scratch, 0, world, 0, rt.pL0[i], 0)
                 Matrix.multiplyMM(m, 0, rt.pInv[i], 0, scratch, 0)
                 tm.setTransform(tm.getInstance(rt.entities[i]), m)
             }
         }
+    }
 
-        if (Calibration.dumpPose) {
-            Calibration.dumpPose = false
-            val sb = StringBuilder("pose probe (model space):\n")
-            for ((label, grp, p) in PROBE_POINTS) {
-                val w = groupWorld[grp] ?: continue
-                val x = w[0] * p[0] + w[4] * p[1] + w[8] * p[2] + w[12]
-                val y = w[1] * p[0] + w[5] * p[1] + w[9] * p[2] + w[13]
-                val z = w[2] * p[0] + w[6] * p[1] + w[10] * p[2] + w[14]
-                sb.append("  %-9s (%6.2f, %5.2f, %6.2f)\n".format(label, x, y, z))
-            }
-            android.util.Log.i("PoseProbe", sb.toString())
+    fun dumpProbeIfRequested() {
+        if (!Calibration.dumpPose) return
+        Calibration.dumpPose = false
+        val mp = FloatArray(3)
+        val sb = StringBuilder("pose probe (WORLD space):\n")
+        for ((label, grp, p) in PROBE_POINTS) {
+            val w = groupWorld[grp] ?: continue
+            transformPoint(w, p, mp)
+            val x = rootM[0] * mp[0] + rootM[4] * mp[1] + rootM[8] * mp[2] + rootM[12]
+            val y = rootM[1] * mp[0] + rootM[5] * mp[1] + rootM[9] * mp[2] + rootM[13]
+            val z = rootM[2] * mp[0] + rootM[6] * mp[1] + rootM[10] * mp[2] + rootM[14]
+            sb.append("  %-9s (%6.3f, %6.3f, %6.3f)\n".format(label, x, y, z))
         }
+        android.util.Log.i("PoseProbe", sb.toString())
     }
 
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
@@ -450,13 +495,22 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             else -> (BASE_YAW_DEG + STANCE_BODY_YAW) * sim.facingF
         }
         val inStance = !Calibration.testPose && !Calibration.tPose
-        val dy = if (inStance) STANCE_ROOT_DY + Calibration.rootDy + idleDy else 0f
+        val dy = if (inStance) Calibration.rootDy else 0f
         Matrix.setIdentityM(m, 0)
         Matrix.translateM(m, 0, 0f, dy, 0f)
         Matrix.rotateM(m, 0, yaw, 0f, 1f, 0f)
-        if (inStance) Matrix.translateM(m, 0, 0f, 0f, STANCE_ROOT_DZ)
+        if (inStance) {
+            // hips-back shift + the foot pin (model-frame, render magnitude)
+            Matrix.translateM(
+                m, 0,
+                -footComp[0] * modelScale,
+                -footComp[1] * modelScale,
+                STANCE_ROOT_DZ - footComp[2] * modelScale,
+            )
+        }
         Matrix.scaleM(m, 0, modelScale, modelScale, modelScale)
         Matrix.translateM(m, 0, modelOffX / modelScale, modelOffY / modelScale, modelOffZ / modelScale)
+        System.arraycopy(m, 0, rootM, 0, 16)
         val tm = engine.transformManager
         tm.setTransform(tm.getInstance(a.root), m)
     }
