@@ -280,6 +280,8 @@ class InputMonitor {
         if (frame <= lastFrame) return
         val ticks = (frame - lastFrame).toInt()
         lastFrame = frame
+        // streak timeouts run on the same 60Hz grid as everything else
+        tech.onTick(ticks)
 
         val dir = direction.value
         val buttons = pressedButtons.toList()

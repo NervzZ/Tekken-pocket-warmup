@@ -1,6 +1,8 @@
 package com.nervz.movementtrainer.input
 
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import java.util.concurrent.atomic.AtomicInteger
 
 // Shared between the input path (writes) and the GL render thread (reads).
@@ -24,8 +26,18 @@ class MovementState {
 // `logical` mirrors them per side so BACK is always B in the state machines.
 // Thresholds are first guesses — tune against real-pad feel.
 class TechEngine(private val movement: MovementState) {
+    // CLEAN KBD: only db-cancel rolled DIRECTLY into the next backdash
+    // (AFTER_DB -> b). Lazier-but-valid cancels don't count.
     val kbdStreak = mutableIntStateOf(0)
+    // WAVEDASH: every crouchdash counts; resets ONLY on a 45f gap (not on
+    // sequence fails — holding the cancel-f used to kill it after one rep)
     val wdStreak = mutableIntStateOf(0)
+    // WAVU SPEED: cd/s across the current streak; freezes for reading when
+    // the streak times out, restarts with the next streak
+    val wavuSpeed = mutableFloatStateOf(0f)
+    val wavuLive = mutableStateOf(false)
+    private var wdGap = 0
+    private var wdElapsed = 0
 
     private var p2 = false
     private val maxHold = 20
@@ -55,6 +67,8 @@ class TechEngine(private val movement: MovementState) {
             (k == K.N1 || k == K.BD_N || k == K.AFTER_DB || k == K.AFTER_DB_N)
         ) {
             movement.backdashes.incrementAndGet()
+            // the CLEAN kbd: db-cancel rolled straight into this b
+            if (k == K.AFTER_DB) kbdStreak.intValue++
             firedB = true
         }
         if (d == Direction.F && dash == DSH.N1) {
@@ -63,8 +77,7 @@ class TechEngine(private val movement: MovementState) {
         }
         // crouchdash slides the moment the df lands (f,n,d,DF — df may be held)
         if (d == Direction.DF && w == W.D) {
-            wdStreak.intValue++
-            movement.crouchDashes.incrementAndGet()
+            onCdEvent()
             firedDF = true
         }
     }
@@ -77,9 +90,42 @@ class TechEngine(private val movement: MovementState) {
     fun resetStreaks() {
         kbdStreak.intValue = 0
         wdStreak.intValue = 0
+        wavuSpeed.floatValue = 0f
+        wavuLive.value = false
+        wdGap = 0
+        wdElapsed = 0
         k = K.IDLE
         w = W.IDLE
         dash = DSH.IDLE
+    }
+
+    // a crouchdash happened (sequence-validated or debug-injected): drive
+    // the counter, the streak gap, and the live cd/s average
+    fun onCdEvent() {
+        movement.crouchDashes.incrementAndGet()
+        if (wdStreak.intValue == 0) {
+            wdElapsed = 0
+            wavuSpeed.floatValue = 0f
+            wavuLive.value = true
+        } else if (wdElapsed > 0) {
+            // streak (pre-increment) = completed intervals since cd #1
+            wavuSpeed.floatValue = wdStreak.intValue * 60f / wdElapsed
+        }
+        wdStreak.intValue++
+        wdGap = 0
+    }
+
+    // sampler frame ticks — the wavedash streak times out on a 45f gap,
+    // freezing the speed readout so the user can read it
+    fun onTick(frames: Int) {
+        if (wdStreak.intValue > 0) {
+            wdGap += frames
+            wdElapsed += frames
+            if (wdGap > 45) {
+                wdStreak.intValue = 0
+                wavuLive.value = false
+            }
+        }
     }
 
     fun onState(dirPhysical: Direction, hasButtons: Boolean, frames: Int) {
@@ -133,7 +179,6 @@ class TechEngine(private val movement: MovementState) {
             } else kFail(d, quick)
             K.BD -> when {
                 d == Direction.DB && quick -> {
-                    kbdStreak.intValue++
                     movement.kbdCancels.incrementAndGet()
                     K.AFTER_DB
                 }
@@ -142,7 +187,6 @@ class TechEngine(private val movement: MovementState) {
             }
             K.BD_N -> when {
                 d == Direction.DB && quick -> {
-                    kbdStreak.intValue++
                     movement.kbdCancels.incrementAndGet()
                     K.AFTER_DB
                 }
@@ -152,9 +196,13 @@ class TechEngine(private val movement: MovementState) {
                 }
                 else -> kFail(d, quick)
             }
+            // db rolled DIRECTLY into b = the clean KBD rep
             K.AFTER_DB -> when {
                 d == Direction.B && (quick || firedB) -> {
-                    if (!firedB) movement.backdashes.incrementAndGet()
+                    if (!firedB) {
+                        movement.backdashes.incrementAndGet()
+                        kbdStreak.intValue++
+                    }
                     K.BD
                 }
                 d == Direction.N && shortGap -> K.AFTER_DB_N
@@ -175,7 +223,6 @@ class TechEngine(private val movement: MovementState) {
     // Wavedash: f, (n), d, d/f = one crouchdash (streak++), then f arms the next.
     private fun wavedash(d: Direction, btn: Boolean, frames: Int) {
         if (btn) {
-            wdStreak.intValue = 0
             w = W.IDLE
             return
         }
@@ -190,10 +237,7 @@ class TechEngine(private val movement: MovementState) {
             }
             W.FN -> if (d == Direction.D && quick) W.D else wFail(d, quick)
             W.D -> if (d == Direction.DF && (frames <= dfHold || firedDF)) {
-                if (!firedDF) {
-                    wdStreak.intValue++
-                    movement.crouchDashes.incrementAndGet()
-                }
+                if (!firedDF) onCdEvent()
                 W.DF
             } else wFail(d, quick)
             W.DF -> when {
@@ -206,7 +250,8 @@ class TechEngine(private val movement: MovementState) {
     }
 
     private fun wFail(d: Direction, quick: Boolean): W {
-        wdStreak.intValue = 0
+        // sequence fails reset the MACHINE only — the wavedash streak lives
+        // and dies by its 45-frame gap alone
         return if (d == Direction.F && quick) W.F else W.IDLE
     }
 

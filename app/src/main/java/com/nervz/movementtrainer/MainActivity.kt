@@ -106,7 +106,9 @@ class MainActivity : ComponentActivity() {
                         "ssup" -> monitor.movement.sidestepsUp.incrementAndGet()
                         "ssdown" -> monitor.movement.sidestepsDown.incrementAndGet()
                         "dash" -> monitor.movement.dashes.incrementAndGet()
-                        "cd" -> monitor.movement.crouchDashes.incrementAndGet()
+                        // routes through the tech engine so the wavedash
+                        // streak + wavu speed counters see injected cds too
+                        "cd" -> monitor.tech.onCdEvent()
                     }
                 }
             },
@@ -191,9 +193,19 @@ fun MonitorScreen(monitor: InputMonitor) {
                         Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 12.dp),
                         horizontalAlignment = Alignment.End,
                     ) {
-                        StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
+                        Text(
+                            "STREAKS",
+                            color = Color(0xFFAAB6C2),
+                            fontSize = 11.sp,
+                            letterSpacing = 3.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        StreakCounter("CLEAN KBD", monitor.tech.kbdStreak.intValue)
                         Spacer(Modifier.height(2.dp))
                         StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
+                        Spacer(Modifier.height(2.dp))
+                        WavuSpeed(monitor)
                     }
                     if (Calibration.display.value.isNotEmpty()) {
                         Text(
@@ -317,6 +329,30 @@ private fun HeaderRow(monitor: InputMonitor, modifier: Modifier) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+// cd/s across the current wavedash streak — highlighted while it's live
+// computing, settling dim so the final value can be read after the streak
+@Composable
+private fun WavuSpeed(monitor: InputMonitor) {
+    val live = monitor.tech.wavuLive.value
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "WAVU SPEED",
+            color = DimText,
+            fontSize = 10.sp,
+            letterSpacing = 2.sp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "%.1f/s".format(monitor.tech.wavuSpeed.floatValue),
+            color = if (live) Color(0xFFFFD54F) else Color(0xFF9AA7B4),
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            fontSize = if (live) 26.sp else 20.sp,
+        )
     }
 }
 
