@@ -98,8 +98,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         )
         const val STANCE_BODY_YAW = -22f
         const val ANKLE_REST_Y = 0.083f     // ankle-ball height with sole flat
-        const val WALK_SWING_DEG = 10f      // thigh swing amplitude
-        const val WALK_KNEE_DEG = 16f       // knee-fold clearance amplitude
+        // walk anim parameter sets — forward keeps the idle stance posture
+        // with distinct lifted steps; backward shifts the upper body back
+        // and takes smaller steps (user spec)
+        const val WALK_SWING_F = 10f        // thigh swing amplitude, forward
+        const val WALK_SWING_B = 7f         // smaller steps backward
+        const val WALK_KNEE_F = 22f         // distinct foot lift forward
+        const val WALK_KNEE_B = 12f
+        const val WALK_LEAN_B = 6f          // torso lean back while retreating
+        const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -388,16 +395,27 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val amt = sim.walkAmount
         if (amt < 0.01f) return emptyMap()
         val p = sim.walkPhase
+        // cross-fade the forward/backward parameter sets on the smoothed dir
+        val f = kotlin.math.max(0f, sim.walkDir)
+        val bk = kotlin.math.max(0f, -sim.walkDir)
+        val swingAmp = WALK_SWING_F * f + WALK_SWING_B * bk
+        val kneeAmp = WALK_KNEE_F * f + WALK_KNEE_B * bk
+        // hips drawn back relative to the feet (thigh bias is cancelled into
+        // a real body shift by the ankle centering); torso leans back with a
+        // head counter-nod — the retreating upper-body stance shift
+        val hipBias = -WALK_HIP_BIAS_B * bk * amt
         val out = HashMap<String, FloatArray>()
         for ((side, off) in listOf("A" to 0f, "B" to Math.PI.toFloat())) {
             val swing = kotlin.math.sin(p + off)
             val clearance = kotlin.math.max(0f, kotlin.math.sin(p + off + 0.45f))
-            val thigh = -WALK_SWING_DEG * swing * amt
-            val shin = WALK_KNEE_DEG * clearance * amt
+            val thigh = -swingAmp * swing * amt + hipBias
+            val shin = kneeAmp * clearance * amt
             out["THIGH_$side"] = floatArrayOf(thigh, 0f, 0f)
             out["SHIN_$side"] = floatArrayOf(shin, 0f, 0f)
             out["FOOT_$side"] = floatArrayOf(-(thigh + shin) * 0.75f, 0f, 0f)
         }
+        out["TORSO"] = floatArrayOf(-WALK_LEAN_B * bk * amt, 0f, 0f)
+        out["HEAD"] = floatArrayOf(3f * bk * amt, 0f, 0f)
         out["PELVIS"] = floatArrayOf(0f, 2.2f * kotlin.math.sin(p) * amt, 0f)
         return out
     }

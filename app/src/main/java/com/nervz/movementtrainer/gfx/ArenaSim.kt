@@ -35,6 +35,8 @@ class ArenaSim(private val movement: MovementState) {
     @Volatile var state = MoveState.IDLE
     @Volatile var walkPhase = 0f     // radians; one 2*PI cycle = 2 steps
     @Volatile var walkAmount = 0f    // 0..1 idle->walk blend
+    @Volatile var walkDir = 0f       // smoothed +1 fwd / -1 back (anim blend)
+    private var dirSm = 0f
 
     fun step(dt: Float) {
         val facing = movement.facing
@@ -56,8 +58,15 @@ class ArenaSim(private val movement: MovementState) {
         dist = dist.coerceIn(1.1f, 5.5f)
 
         // anim drive: phase advances with signed speed (backward walks the
-        // cycle in reverse); amount eases the offsets in and out of idle
-        if (speed != 0f) walkPhase += PI.toFloat() * speed / WALK_STRIDE * dt
+        // cycle in reverse, with shorter steps); amount eases the offsets in
+        // and out of idle; dir cross-fades the F/B animation parameter sets
+        val stride = if (state == MoveState.WALK_B) WALK_STRIDE_BACK else WALK_STRIDE_FWD
+        if (speed != 0f) {
+            walkPhase += PI.toFloat() * speed / stride * dt
+            val dTarget = if (speed > 0f) 1f else -1f
+            dirSm += (dTarget - dirSm) * min(1f, dt * 6f)
+        }
+        walkDir = dirSm
         val target = if (speed != 0f) 1f else 0f
         walkAmt += (target - walkAmt) * min(1f, dt * 7f)
         walkAmount = walkAmt
@@ -86,6 +95,7 @@ class ArenaSim(private val movement: MovementState) {
     companion object {
         const val WALK_FWD_SPEED = 0.85f    // arena units / s
         const val WALK_BACK_SPEED = 0.55f
-        const val WALK_STRIDE = 0.30f       // units per step (sets cadence)
+        const val WALK_STRIDE_FWD = 0.30f   // units per step (sets cadence)
+        const val WALK_STRIDE_BACK = 0.22f  // shorter, less covering steps
     }
 }
