@@ -33,6 +33,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -45,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -191,18 +194,34 @@ fun MonitorScreen(monitor: InputMonitor) {
                             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
                         )
                     }
-                    FpsCounter(
-                        Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 8.dp),
-                    )
-                    Text(
-                        if (show3d) "tap to disable 3D" else "tap to enable 3D",
-                        color = DimText,
-                        fontSize = 11.sp,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 12.dp, bottom = 8.dp)
-                            .clickable { show3d = !show3d },
-                    )
+                    Column(
+                        Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 6.dp),
+                        horizontalAlignment = Alignment.End,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { show3d = !show3d },
+                        ) {
+                            Text(
+                                if (show3d) "3D ON" else "3D OFF",
+                                color = DimText,
+                                fontSize = 11.sp,
+                                letterSpacing = 1.sp,
+                            )
+                            Switch(
+                                checked = show3d,
+                                onCheckedChange = { show3d = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AccentRed,
+                                    checkedTrackColor = Color(0xFF3A2226),
+                                    uncheckedThumbColor = DimText,
+                                    uncheckedTrackColor = Color(0xFF1E242B),
+                                ),
+                                modifier = Modifier.scale(0.6f),
+                            )
+                        }
+                        FpsCounter(Modifier)
+                    }
                 }
             }
         }
