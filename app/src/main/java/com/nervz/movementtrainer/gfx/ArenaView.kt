@@ -152,7 +152,9 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
         GLES20.glUseProgram(program)
         // camera leans toward the opponent so the ghost stays in frame
         val f = movement.facing.toFloat()
-        val targetCamX = f * min(dist, 2.2f) * 0.5f
+        // pivot bias minus a right-shift so the character clears the
+        // history overlay now that the pane spans the full screen width
+        val targetCamX = f * (min(dist, 2.2f) * 0.5f - 0.5f)
         camX += (targetCamX - camX) * 0.04f
         Matrix.setLookAtM(view, 0, camX + 2.5f, 2.4f, 11.2f, camX, 1.0f, 0f, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
@@ -271,16 +273,22 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
     private fun charWorldZ() = dist * sin(orbitAng)
 
     private fun drawGrid() {
+        // solid ground plane the character actually stands on (static in
+        // character space — uniform color, so no scroll is visible on it)
+        part(0f, -0.05f, 0f, 0f, 0f, 0f, 80f, 0.1f, 80f, 0.085f, 0.104f, 0.124f, 1f, lit = false)
+
+        // grid texture on top of it, carrying the orbit scroll/rotation
         val cx = charWorldX()
         val cz = charWorldZ()
         Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, 0f, 0.012f, 0f)
         Matrix.rotateM(model, 0, worldRotationDeg(), 0f, 1f, 0f)
         Matrix.translateM(model, 0, round(cx) - cx, 0f, round(cz) - cz)
         Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniformMatrix4fv(uModel, 1, false, model, 0)
         GLES20.glUniform1f(uLit, 0f)
-        GLES20.glUniform4f(uColor, 0.55f, 0.65f, 0.75f, 0.17f)
+        GLES20.glUniform4f(uColor, 0.55f, 0.65f, 0.75f, 0.21f)
         GLES20.glEnableVertexAttribArray(aPos)
         cube.position(0)
         grid.position(0)
@@ -293,12 +301,12 @@ class ArenaRenderer(private val movement: MovementState) : GLSurfaceView.Rendere
     private fun drawShadowAndOpponent() {
         val f = movement.facing.toFloat()
         // soft shadow under the character
-        part(0f, 0.012f, 0f, 0f, 0f, 0f, 0.85f, 0.02f, 0.6f, 0.02f, 0.03f, 0.04f, 0.55f, lit = false)
+        part(0f, 0.022f, 0f, 0f, 0f, 0f, 0.85f, 0.02f, 0.6f, 0.02f, 0.03f, 0.04f, 0.55f, lit = false)
         // red dot on the ground marking the orbit pivot; clamped into frame
         // and faded with range
         val vis = min(dist, 2.2f)
         val fade = (2.6f / dist).coerceAtMost(1f)
-        part(f * vis, 0.014f, 0f, 0f, 45f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.55f * fade, lit = false)
+        part(f * vis, 0.03f, 0f, 0f, 45f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f * fade, lit = false)
     }
 
     // ---- mokujin ----

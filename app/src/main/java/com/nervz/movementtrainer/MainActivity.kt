@@ -106,35 +106,39 @@ fun MonitorScreen(monitor: InputMonitor) {
                     monitor,
                     Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
                 )
-                Row(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    AndroidView(
+                        factory = { ctx -> ArenaView(ctx, monitor.movement) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .fillMaxHeight()
+                            .width(180.dp)
+                            .background(
+                                Brush.horizontalGradient(
+                                    0f to Color(0xFF101418),
+                                    0.62f to Color(0xFF101418),
+                                    1f to Color(0x00101418),
+                                ),
+                            ),
+                    )
                     HistoryList(
                         monitor,
-                        Modifier.padding(start = 14.dp).width(150.dp).fillMaxHeight(),
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 14.dp)
+                            .width(150.dp)
+                            .fillMaxHeight(),
                     )
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        AndroidView(
-                            factory = { ctx -> ArenaView(ctx, monitor.movement) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .fillMaxHeight()
-                                .width(48.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFF101418), Color(0x00101418)),
-                                    ),
-                                ),
-                        )
-                        Column(
-                            Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 12.dp),
-                            horizontalAlignment = Alignment.End,
-                        ) {
-                            StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
-                            Spacer(Modifier.height(2.dp))
-                            StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
-                        }
+                    Column(
+                        Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 12.dp),
+                        horizontalAlignment = Alignment.End,
+                    ) {
+                        StreakCounter("KBD", monitor.tech.kbdStreak.intValue)
+                        Spacer(Modifier.height(2.dp))
+                        StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
                     }
                 }
             }
