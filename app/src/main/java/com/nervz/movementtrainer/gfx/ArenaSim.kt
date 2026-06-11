@@ -16,9 +16,9 @@ import kotlin.math.sin
 //   WALK_F   — slow walk toward the opponent
 //   WALK_B   — slower walk away (Tekken: backward walk < forward walk)
 //   BACKDASH — two quick back inputs; 34 frames, displacement front-loaded
-//              into the first 19 (the rest is recovery). A new backdash
-//              event RESTARTS the state (provisional chain rule until the
-//              KBD cancel rules are specified).
+//              into the first 19 (the rest is recovery). UNCANCELABLE: the
+//              full 34 frames always play; events arriving mid-backdash are
+//              consumed and dropped. (Cancel inputs to be specified later.)
 class ArenaSim(private val movement: MovementState) {
 
     enum class MoveState { IDLE, WALK_F, WALK_B, BACKDASH }
@@ -54,8 +54,11 @@ class ArenaSim(private val movement: MovementState) {
         val bdCount = movement.backdashes.get()
         while (seenBd < bdCount) {
             seenBd++
-            state = MoveState.BACKDASH
-            bdT = 0f
+            // uncancelable: a backdash in progress drops incoming events
+            if (state != MoveState.BACKDASH) {
+                state = MoveState.BACKDASH
+                bdT = 0f
+            }
         }
         if (state == MoveState.BACKDASH) {
             val uPrev = (bdT / BACKDASH_DUR).coerceAtMost(1f)

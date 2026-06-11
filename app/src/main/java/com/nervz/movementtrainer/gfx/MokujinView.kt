@@ -107,7 +107,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
-        const val BD_HOP_Y = 0.045f         // backdash hop height (world units)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -428,26 +427,28 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         if (u <= a || u >= b) 0f
         else kotlin.math.sin(Math.PI.toFloat() * (u - a) / (b - a))
 
-    // Backdash (34f): weight loads onto the lead/left (B) foot, the right
-    // (A) foot lifts and tucks, the left leg extends into the push and the
-    // body takes a small hop backwards; recovery (last ~15f) replants the
-    // right foot and settles through a knee dip back into the stance. The
-    // hop itself is a root-y channel added AFTER the foot seat (animHopY).
+    // Backdash (34f) as a BIG STEP BACK, not a hop (user spec): quick brace
+    // onto the lead/left (B) foot, the right (A) foot steps back through the
+    // air and GROUNDS (~frame 14) while the body is pushed backwards by the
+    // left leg; only THEN does the left foot lift and step back home into
+    // the stance. Feet alternate — never both airborne, no root hop.
     private fun backdashOffsets(): Map<String, FloatArray> {
         val u = sim.bdProgress
         if (u < 0f) {
             animHopY = 0f
             return emptyMap()
         }
-        val lift = bump(u, 0.04f, 0.72f)    // right foot up + tucked
-        val push = bump(u, 0.00f, 0.50f)    // left leg drive
-        val land = bump(u, 0.56f, 0.95f)    // recovery settle dip
-        animHopY = BD_HOP_Y * bump(u, 0.10f, 0.55f)
+        val loadB = bump(u, 0.00f, 0.20f)   // brace: quick sink onto the lead
+        val push = bump(u, 0.06f, 0.45f)    // left-leg drive (heel-up)
+        val liftA = bump(u, 0.02f, 0.42f)   // right foot steps back, grounded by ~14f
+        val liftB = bump(u, 0.45f, 0.85f)   // then the left foot steps home
+        val settle = bump(u, 0.78f, 1.00f)  // small final settle
+        animHopY = 0f
 
-        val thighA = -14f * lift - 4f * land
-        val shinA = 32f * lift + 8f * land
-        val thighB = 6f * push - 4f * land
-        val shinB = -12f * push + 8f * land
+        val thighA = 6f * liftA - 2f * settle
+        val shinA = 22f * liftA + 5f * settle
+        val thighB = -4f * loadB + 5f * push - 6f * liftB
+        val shinB = 8f * loadB - 10f * push + 18f * liftB
         return mapOf(
             "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
             "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
@@ -456,8 +457,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
             // 0.5 comp leaves a heel-up residual on the pushing foot
             "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.5f, 0f, 0f),
-            "TORSO" to floatArrayOf(-6f * push + 4f * land, 0f, 0f),
-            "HEAD" to floatArrayOf(3f * push - 2f * land, 0f, 0f),
+            "TORSO" to floatArrayOf(-6f * push + 3f * settle, 0f, 0f),
+            "HEAD" to floatArrayOf(3f * push, 0f, 0f),
             "PELVIS" to floatArrayOf(0f, -3f * push, 0f),
         )
     }
