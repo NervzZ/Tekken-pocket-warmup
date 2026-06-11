@@ -114,7 +114,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val RUN_LEAN = 14f            // forward lean over the stance
         const val RUN_GUARD_UNFOLD = 28f    // forearm unfold: fists drop lower
         const val RUN_GUARD_LOOSEN = 6f     // slight upper-arm relax
-        const val JUMP_HEIGHT = 0.5f        // ballistic apex (world units)
+        const val JUMP_HEIGHT = 0.95f       // ballistic apex (world units)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 

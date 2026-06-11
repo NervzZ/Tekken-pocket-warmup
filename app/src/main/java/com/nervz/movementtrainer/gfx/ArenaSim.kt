@@ -394,7 +394,7 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDEWALK_SPEED = 1.7f     // brisk Tekken strafe, units / s
         const val SIDEWALK_STRIDE = 0.42f   // lateral units per step (cadence)
         const val JUMP_HOLD = 10f / 60f     // up-hold frames to trigger (tap = 8)
-        const val JUMP_DUR = 48f / 60f      // airborne portion
+        const val JUMP_DUR = 38f / 60f      // airborne portion (snappy, not floaty)
         const val JUMP_DRIFT = 0.35f        // ub/uf horizontal arc
         const val LAND_LOCK = 12f / 60f     // locked crouch landing recovery
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
