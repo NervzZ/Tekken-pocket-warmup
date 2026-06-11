@@ -107,11 +107,11 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
-        const val RUN_SWING = 34f           // run thigh swing — big strides
+        const val RUN_SWING = 42f           // run thigh swing — reaching strides
         const val RUN_LEG_STRAIGHTEN = 0.6f // fraction of stance leg-coil unwound
         const val RUN_KNEE = 42f            // run knee-lift amplitude
-        const val RUN_ARM = 14f             // shoulder pump amplitude
-        const val RUN_LEAN = 10f            // forward lean over the stance
+        const val RUN_ARM = 26f             // exaggerated shoulder swing
+        const val RUN_LEAN = 14f            // forward lean over the stance
         const val RUN_GUARD_UNFOLD = 28f    // forearm unfold: fists drop lower
         const val RUN_GUARD_LOOSEN = 6f     // slight upper-arm relax
 

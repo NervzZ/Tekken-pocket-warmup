@@ -25,10 +25,11 @@ import kotlin.math.sin
 //   CROUCH    — held down/down-back; a FREE state: ducks in ~7-8 frames,
 //               locks nothing (any event fires straight out of it), and
 //               exits the moment the hold releases.
-//   DASH      — double-tap forward; a run, much faster than walking, for
-//               ~80 frames. A third forward tap (dash event mid-dash) ARMS
+//   DASH      — double-tap forward; a 34-frame run, much faster than
+//               walking. A third forward tap (dash event mid-dash) ARMS
 //               maintain: holding that last forward keeps the run going
-//               past the 80 frames until released. Other events dropped.
+//               until released. CANCELABLE BY ANY OTHER MOVEMENT at any
+//               moment: backdash, sidestep taps, crouch, or holding back.
 class ArenaSim(private val movement: MovementState) {
 
     enum class MoveState {
@@ -110,9 +111,16 @@ class ArenaSim(private val movement: MovementState) {
             MoveState.SIDESTEP_UP, MoveState.SIDESTEP_DOWN -> {
                 // uncancelable: all events are consumed and dropped
             }
-            MoveState.DASH -> {
-                // a third forward tap arms maintain; other events dropped
-                if (dashEvt) dashMaintain = true
+            MoveState.DASH -> when {
+                // any other movement cancels the dash at any moment
+                bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
+                ssUpEvt -> startSidestep(+1f)
+                ssDownEvt -> startSidestep(-1f)
+                crouchHeld -> state = MoveState.CROUCH
+                relDir == -1 -> state = MoveState.WALK_B
+                // a third forward tap arms maintain
+                dashEvt -> dashMaintain = true
+                else -> {}
             }
             else -> when {
                 // IDLE / WALK / CROUCH are free states
@@ -273,6 +281,6 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDESTEP_ARC = 0.42f      // lateral units circled per step
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         const val DASH_SPEED = 2.2f         // a run — much faster than walking
-        const val DASH_STRIDE = 0.55f       // long running strides
+        const val DASH_STRIDE = 0.75f       // long reaching strides (slow cadence)
     }
 }
