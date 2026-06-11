@@ -26,31 +26,22 @@ import com.google.android.filament.gltfio.UbershaderProvider
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-// Part-identification mode for the unrigged segmented model: set `part` to a
-// node index (adb broadcast) and that part inflates visibly in the render.
+// Rig calibration/verification: the tour cycles limb GROUPS (C key), pausing
+// with X; V toggles a static test pose that exercises the joint pivots.
 object Calibration {
     @Volatile var part = -1
     @Volatile var auto = false
     @Volatile var paused = false
+    @Volatile var testPose = false
     @Volatile var autoStartNanos = 0L
     @Volatile var pauseNanos = 0L
     val display = androidx.compose.runtime.mutableStateOf("")
-
-    val PART_NAMES = listOf(
-        "Cube.013_Mokujin_0", "Cube.012_Mokujin_0", "Cube.011_Mokujin_0",
-        "Cube.010_Mokujin_0", "Cube.009_Mokujin_0", "Cube.008_Mokujin_0",
-        "Cube.007_Mokujin_0", "Cylinder.015_Mokujin_0", "Cylinder.014_Mokujin_0",
-        "Cylinder.013_Mokujin_0", "Cylinder.012_Mokujin_0", "Cylinder.011_Mokujin_0",
-        "Cylinder.010_Mokujin_0", "Plane.003_Mokujin_0", "Plane.002_Mokujin_0",
-        "Cylinder.016_Mokujin_0", "Torus.001_Mokujin_0", "Torus.002_Mokujin_0",
-        "Torus.003_Mokujin_0", "Cylinder.008_Mokujin_0", "Cylinder.009_Mokujin_0",
-        "Torus.008_Mokujin_0", "Torus.009_Mokujin_0", "Torus.010_Mokujin_0",
-    )
 }
 
-// Mokujin layer: a translucent Filament surface stacked over the GL ground
-// layer. Reads camera + root motion from the shared ArenaSim; plays the idle
-// clip when the asset has one.
+// Mokujin layer: translucent Filament surface over the GL ground layer.
+// The model is an unrigged collection of 116 rigid parts; MOKUJIN_RIG groups
+// them into limbs with ball-joint pivots, and this view poses the groups
+// hierarchically (parent rotations carry children).
 class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(context) {
 
     companion object {
@@ -58,8 +49,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             Filament.init()
             Gltfio.init()
         }
-        // model height in arena units and yaw correction for the model's
-        // authored forward direction (tuned empirically)
         private const val TARGET_HEIGHT = 1.66f
         private const val BASE_YAW_DEG = 90f
     }
@@ -72,16 +61,25 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
     private val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK)
     private var swapChain: SwapChain? = null
     private var asset: FilamentAsset? = null
-    private var animDur = 1f
     private var modelScale = 1f
     private var modelOffX = 0f
     private var modelOffY = 0f
     private var modelOffZ = 0f
-    private var partEntities = IntArray(0)
-    private var partOriginals = emptyList<FloatArray>()
 
+    // Per entity, precomputed so a model-space group transform W applies as
+    // local' = pInv * W * pL0 regardless of the node's parent chain:
+    //   P = rootWorld^-1 * nodeWorld * L0^-1   (parent chain in model space)
+    private class GroupInstance(
+        val group: RigGroup,
+        val entities: IntArray,
+        val pInv: Array<FloatArray>,
+        val pL0: Array<FloatArray>,
+    )
+
+    private var rig: List<GroupInstance> = emptyList()
+    private val groupWorld = HashMap<String, FloatArray>()
     private val m = FloatArray(16)
-    private val pm = FloatArray(16)
+    private val scratch = FloatArray(16)
 
     init {
         setZOrderMediaOverlay(true)
@@ -139,13 +137,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             override fun doFrame(frameTimeNanos: Long) {
                 Choreographer.getInstance().postFrameCallback(this)
                 asset?.let { a ->
-                    val animator = a.instance.animator
-                    if (animator.animationCount > 0) {
-                        val t = ((frameTimeNanos / 1_000_000_000.0) % animDur).toFloat()
-                        animator.applyAnimation(0, t)
-                        animator.updateBoneMatrices()
-                    }
-                    applyCalibration(frameTimeNanos)
+                    applyRigPose(frameTimeNanos)
                     updateRootTransform(a, frameTimeNanos)
                 }
                 camera.lookAt(
@@ -178,9 +170,6 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         rl.destroy()
         a.releaseSourceData()
         scene.addEntities(a.entities)
-        if (a.instance.animator.animationCount > 0) {
-            animDur = a.instance.animator.getAnimationDuration(0)
-        }
 
         val bb = a.boundingBox
         val height = bb.halfExtent[1] * 2f
@@ -190,19 +179,54 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         modelOffZ = -bb.center[2] * modelScale
 
         val tm = engine.transformManager
-        partEntities = Calibration.PART_NAMES
-            .map { a.getFirstEntityByName(it) }
-            .toIntArray()
-        partOriginals = partEntities.map { e ->
-            val out = FloatArray(16)
-            if (e != 0) tm.getTransform(tm.getInstance(e), out)
-            out
+        val rootWorld = FloatArray(16)
+        tm.getWorldTransform(tm.getInstance(a.root), rootWorld)
+        val rootWorldInv = FloatArray(16)
+        Matrix.invertM(rootWorldInv, 0, rootWorld, 0)
+
+        rig = MOKUJIN_RIG.map { g ->
+            val ents = g.nodes.map { a.getFirstEntityByName(it) }.filter { it != 0 }.toIntArray()
+            val pInvs = ArrayList<FloatArray>(ents.size)
+            val pL0s = ArrayList<FloatArray>(ents.size)
+            for (e in ents) {
+                val inst = tm.getInstance(e)
+                val l0 = FloatArray(16)
+                tm.getTransform(inst, l0)
+                val w = FloatArray(16)
+                tm.getWorldTransform(inst, w)
+                val wModel = FloatArray(16)
+                Matrix.multiplyMM(wModel, 0, rootWorldInv, 0, w, 0)
+                val l0Inv = FloatArray(16)
+                Matrix.invertM(l0Inv, 0, l0, 0)
+                val p = FloatArray(16)
+                Matrix.multiplyMM(p, 0, wModel, 0, l0Inv, 0)
+                val pInv = FloatArray(16)
+                Matrix.invertM(pInv, 0, p, 0)
+                val pl0 = FloatArray(16)
+                Matrix.multiplyMM(pl0, 0, p, 0, l0, 0)
+                pInvs.add(pInv)
+                pL0s.add(pl0)
+            }
+            GroupInstance(g, ents, pInvs.toTypedArray(), pL0s.toTypedArray())
         }
         asset = a
     }
 
-    private fun applyCalibration(frameTimeNanos: Long) {
-        val sel = if (Calibration.auto) {
+    // Static test pose exercising the pivots; everything else = authored pose.
+    private fun poseAngles(): Map<String, Float> = if (Calibration.testPose) {
+        mapOf(
+            "SHIN_A" to 40f, "SHIN_B" to 40f,
+            "FARM_B" to -45f, "UARM_A" to 25f, "HEAD" to 14f,
+        )
+    } else {
+        emptyMap()
+    }
+
+    private fun applyRigPose(frameTimeNanos: Long) {
+        val tm = engine.transformManager
+        val angles = poseAngles()
+
+        val tourSel = if (Calibration.auto) {
             if (Calibration.autoStartNanos == 0L) Calibration.autoStartNanos = frameTimeNanos
             if (Calibration.paused) {
                 if (Calibration.pauseNanos == 0L) Calibration.pauseNanos = frameTimeNanos
@@ -212,34 +236,45 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             }
             val effectiveNow = if (Calibration.paused) Calibration.pauseNanos else frameTimeNanos
             val elapsed = (effectiveNow - Calibration.autoStartNanos) / 1_000_000_000.0
-            val idx = ((elapsed / 2.5) % Calibration.PART_NAMES.size).toInt()
+            val idx = ((elapsed / 2.5) % rig.size).toInt()
             val pauseTag = if (Calibration.paused) "  [PAUSED — X resumes]" else ""
-            Calibration.display.value = "part $idx — ${Calibration.PART_NAMES[idx]}$pauseTag"
+            Calibration.display.value = "group $idx — ${rig[idx].group.name}$pauseTag"
             idx
         } else {
             Calibration.autoStartNanos = 0L
             Calibration.pauseNanos = 0L
             Calibration.paused = false
             if (Calibration.display.value.isNotEmpty()) Calibration.display.value = ""
-            Calibration.part
+            -1
         }
-        val tm = engine.transformManager
-        for (i in partEntities.indices) {
-            val e = partEntities[i]
-            if (e == 0) continue
-            if (i == sel) {
-                System.arraycopy(partOriginals[i], 0, pm, 0, 16)
-                Matrix.scaleM(pm, 0, 1.9f, 1.9f, 1.9f)
-                tm.setTransform(tm.getInstance(e), pm)
+
+        groupWorld.clear()
+        for ((index, rt) in rig.withIndex()) {
+            val g = rt.group
+            val local = FloatArray(16)
+            Matrix.setIdentityM(local, 0)
+            Matrix.translateM(local, 0, g.pivot[0], g.pivot[1], g.pivot[2])
+            val angle = angles[g.name] ?: 0f
+            if (angle != 0f) Matrix.rotateM(local, 0, angle, 1f, 0f, 0f)
+            if (index == tourSel) Matrix.scaleM(local, 0, 1.45f, 1.45f, 1.45f)
+            Matrix.translateM(local, 0, -g.pivot[0], -g.pivot[1], -g.pivot[2])
+            val world = if (g.parent != null) {
+                val pw = groupWorld[g.parent]
+                if (pw != null) {
+                    FloatArray(16).also { Matrix.multiplyMM(it, 0, pw, 0, local, 0) }
+                } else local
             } else {
-                tm.setTransform(tm.getInstance(e), partOriginals[i])
+                local
+            }
+            groupWorld[g.name] = world
+            for (i in rt.entities.indices) {
+                Matrix.multiplyMM(scratch, 0, world, 0, rt.pL0[i], 0)
+                Matrix.multiplyMM(m, 0, rt.pInv[i], 0, scratch, 0)
+                tm.setTransform(tm.getInstance(rt.entities[i]), m)
             }
         }
     }
 
-    // No root-motion fakery: the model only gets its facing yaw (or the tour
-    // spin) plus scale/centering. All movement animation will be done at the
-    // part level once the rig mapping is known.
     private fun updateRootTransform(a: FilamentAsset, frameTimeNanos: Long) {
         val yaw = if (Calibration.auto) {
             (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
