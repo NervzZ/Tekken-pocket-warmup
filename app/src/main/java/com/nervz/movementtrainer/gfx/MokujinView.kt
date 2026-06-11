@@ -69,12 +69,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val STANCE_OFFSETS: Map<String, FloatArray> = mapOf(
             "TORSO" to floatArrayOf(8f, 0f, 0f),
             "HEAD" to floatArrayOf(0f, 20f, 0f),
-            "THIGH_B" to floatArrayOf(-16f, 0f, 16f),
+            // hips counter-rotate left: less twisted than the shoulders, so
+            // the leg base doesn't convert stance depth into foot crossing
+            "PELVIS" to floatArrayOf(0f, 12f, 0f),
+            "THIGH_B" to floatArrayOf(-16f, 0f, 20f),
             "SHIN_B" to floatArrayOf(14f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(0f, 0f, -16f),
-            "THIGH_A" to floatArrayOf(12f, 0f, -18f),
+            "FOOT_B" to floatArrayOf(0f, 0f, -20f),
+            "THIGH_A" to floatArrayOf(12f, 0f, -22f),
             "SHIN_A" to floatArrayOf(14f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-24f, -20f, 18f),
+            "FOOT_A" to floatArrayOf(-24f, -20f, 22f),
             "UARM_B" to floatArrayOf(0f, -22f, -92f),
             "FARM_B" to floatArrayOf(0f, -85f, 95f),
             "UARM_A" to floatArrayOf(0f, 25f, 102f),
