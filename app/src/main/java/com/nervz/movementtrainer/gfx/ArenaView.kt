@@ -9,8 +9,10 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.round
+import kotlin.math.sin
 
 // Ground layer: solid floor, scrolling/rotating grid texture, pivot dot, and
 // the character's blob shadow. Also the thread that steps the shared ArenaSim.
@@ -32,6 +34,8 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
 
     private lateinit var cube: FloatBuffer
     private lateinit var grid: FloatBuffer
+    private lateinit var disc: FloatBuffer
+    private var discVertCount = 0
     private var gridLineCount = 0
 
     private val proj = FloatArray(16)
@@ -68,6 +72,7 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
 
         cube = floatBufferOf(*CUBE_VERTS)
         buildGrid()
+        buildDisc()
         lastNanos = System.nanoTime()
     }
 
@@ -111,10 +116,10 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, gridLineCount * 2)
         GLES20.glDisableVertexAttribArray(aPos)
 
-        // ground-contact reference dots: character (char space origin) and
-        // the orbit pivot — the square blob shadow is gone (user request)
-        part(0f, 0.03f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f)
-        part(sim.facingF * sim.dist, 0.03f, 0f, 0.26f, 0.015f, 0.26f, 0.91f, 0.20f, 0.23f, 0.6f)
+        // ground-contact reference dots (round): character (char space
+        // origin) and the orbit pivot — square blob shadow is gone
+        dot(0f, 0.03f, 0f, 0.15f, 0.91f, 0.20f, 0.23f, 0.6f)
+        dot(sim.facingF * sim.dist, 0.03f, 0f, 0.15f, 0.91f, 0.20f, 0.23f, 0.6f)
     }
 
     private fun part(
@@ -132,6 +137,35 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, cube)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36)
         GLES20.glDisableVertexAttribArray(aPos)
+    }
+
+    // flat disc (triangle fan) lying in the ground plane
+    private fun dot(
+        x: Float, y: Float, z: Float, radius: Float,
+        r: Float, g: Float, b: Float, a: Float,
+    ) {
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, x, y, z)
+        Matrix.scaleM(model, 0, radius, 1f, radius)
+        Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUniform4f(uColor, r, g, b, a)
+        GLES20.glEnableVertexAttribArray(aPos)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, disc)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, discVertCount)
+        GLES20.glDisableVertexAttribArray(aPos)
+    }
+
+    private fun buildDisc() {
+        val segs = 32
+        val verts = ArrayList<Float>(3 * (segs + 2))
+        verts.addAll(listOf(0f, 0f, 0f))
+        for (i in 0..segs) {
+            val a = i.toDouble() / segs * 2.0 * Math.PI
+            verts.addAll(listOf(cos(a).toFloat(), 0f, sin(a).toFloat()))
+        }
+        discVertCount = segs + 2
+        disc = floatBufferOf(*verts.toFloatArray())
     }
 
     private fun buildGrid() {
