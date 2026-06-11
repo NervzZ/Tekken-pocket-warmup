@@ -73,19 +73,19 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             // the leg base doesn't convert stance depth into foot crossing
             "PELVIS" to floatArrayOf(0f, 12f, 0f),
             "THIGH_B" to floatArrayOf(-16f, 0f, 20f),
-            "SHIN_B" to floatArrayOf(24f, 0f, 0f),
-            "FOOT_B" to floatArrayOf(-8f, 0f, -20f),
-            "THIGH_A" to floatArrayOf(12f, 0f, -22f),
-            "SHIN_A" to floatArrayOf(14f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-24f, -20f, 22f),
+            "SHIN_B" to floatArrayOf(30f, 0f, 0f),
+            "FOOT_B" to floatArrayOf(-14f, 0f, -20f),
+            "THIGH_A" to floatArrayOf(8f, 0f, -22f),
+            "SHIN_A" to floatArrayOf(20f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-28f, -20f, 22f),
             "UARM_B" to floatArrayOf(0f, -22f, -92f),
             "FARM_B" to floatArrayOf(0f, -85f, 95f),
             "UARM_A" to floatArrayOf(0f, 25f, 102f),
             "FARM_A" to floatArrayOf(0f, 95f, -100f),
         )
         const val STANCE_BODY_YAW = -22f
-        const val STANCE_ROOT_DY = -0.09f
-        const val STANCE_ROOT_DZ = -0.05f   // hips pushed back (model -z)
+        const val STANCE_ROOT_DY = -0.12f
+        const val STANCE_ROOT_DZ = -0.08f   // hips pushed back (model -z)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -306,14 +306,16 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val bob = (1.0 - kotlin.math.cos(tSec * 2.0 * Math.PI * 0.85)).toFloat() / 2f
         val breath = kotlin.math.sin(tSec * 2.0 * Math.PI * 0.30).toFloat()
         val flex = 6f * bob
-        idleDy = -0.020f * bob
+        // root drop matched to the leg-chain shortening from the knee flex so
+        // the feet stay planted (probe-verified, render units)
+        idleDy = -0.011f * bob
         return mapOf(
             "SHIN_B" to floatArrayOf(flex, 0f, 0f),
-            "SHIN_A" to floatArrayOf(flex * 0.8f, 0f, 0f),
+            "SHIN_A" to floatArrayOf(flex * 1.05f, 0f, 0f),
             "THIGH_B" to floatArrayOf(-flex * 0.45f, 0f, 0f),
-            "THIGH_A" to floatArrayOf(-flex * 0.35f, 0f, 0f),
+            "THIGH_A" to floatArrayOf(-flex * 0.47f, 0f, 0f),
             "FOOT_B" to floatArrayOf(-flex * 0.5f, 0f, 0f),
-            "FOOT_A" to floatArrayOf(-flex * 0.45f, 0f, 0f),
+            "FOOT_A" to floatArrayOf(-flex * 0.55f, 0f, 0f),
             "TORSO" to floatArrayOf(1.8f * breath + flex * 0.25f, 0f, 0f),
             "HEAD" to floatArrayOf(-1.2f * breath, 0f, 0f),
             "UARM_B" to floatArrayOf(0f, 0f, 2.2f * breath),
