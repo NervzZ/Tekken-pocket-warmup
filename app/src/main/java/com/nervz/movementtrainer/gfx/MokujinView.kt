@@ -391,6 +391,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 sumInto(trim, runOffsets())
                 sumInto(trim, backdashOffsets())
                 sumInto(trim, sidestepOffsets())
+                sumInto(trim, sidewalkOffsets())
                 sumInto(trim, crouchOffsets())
             }
             sumInto(trim, Calibration.stanceOverrides)
@@ -724,6 +725,32 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         out["TORSO"] = floatArrayOf(0f, 3f * dirX * lean, -5f * dirX * lean)
         out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
         out["PELVIS"] = floatArrayOf(0f, -3f * dirX * lean, 0f)
+        return out
+    }
+
+    // Sidewalk: continuous strafe while the sidestep's direction stays held
+    // (u,U / d,D). Alternating small lateral steps — each leg lifts in its
+    // half-cycle with a slight toward-the-direction reach — under a held
+    // lean into the travel. Sums to zero at rest like every motion layer.
+    private fun sidewalkOffsets(): Map<String, FloatArray> {
+        val amt = sim.swAmount
+        if (amt < 0.01f) return emptyMap()
+        val p = sim.swPhase
+        val dirX = sim.swDir * sim.facingF
+        val out = HashMap<String, FloatArray>()
+        for ((side, off) in listOf("A" to 0f, "B" to Math.PI.toFloat())) {
+            val lift = kotlin.math.max(0f, kotlin.math.sin(p + off))
+            val thigh = -16f * lift * amt
+            val shin = 26f * lift * amt
+            out["THIGH_$side"] = floatArrayOf(thigh, 0f, 5f * dirX * lift * amt)
+            out["SHIN_$side"] = floatArrayOf(shin, 0f, 0f)
+            out["FOOT_$side"] = floatArrayOf(
+                -(thigh + shin) * 0.6f, 0f, -4f * dirX * lift * amt,
+            )
+        }
+        out["TORSO"] = floatArrayOf(0f, 2f * dirX * amt, -3.5f * dirX * amt)
+        out["HEAD"] = floatArrayOf(0f, -2f * dirX * amt, 1.8f * dirX * amt)
+        out["PELVIS"] = floatArrayOf(0f, 2f * kotlin.math.sin(p) * amt, 0f)
         return out
     }
 

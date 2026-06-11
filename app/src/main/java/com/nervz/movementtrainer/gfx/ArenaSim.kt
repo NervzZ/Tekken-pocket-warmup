@@ -22,6 +22,10 @@ import kotlin.math.sin
 //               directional input after buffering invalidates the buffer.
 //   SIDESTEP_UP / SIDESTEP_DOWN — up/down tap; 24 frames circling the
 //               opponent (orbit arc). UNCANCELABLE for now (rules TBD).
+//   SIDEWALK_UP / SIDEWALK_DOWN — holding the direction when the sidestep
+//               ends (u,U / d,D) flows into a continuous strafe around the
+//               opponent until the hold releases. Free state: events fire
+//               straight out of it.
 //   CROUCH    — held down/down-back; a FREE state: ducks in ~7-8 frames,
 //               locks nothing (any event fires straight out of it), and
 //               exits the moment the hold releases.
@@ -33,7 +37,8 @@ import kotlin.math.sin
 class ArenaSim(private val movement: MovementState) {
 
     enum class MoveState {
-        IDLE, WALK_F, WALK_B, BACKDASH, SIDESTEP_UP, SIDESTEP_DOWN, CROUCH, DASH,
+        IDLE, WALK_F, WALK_B, BACKDASH, SIDESTEP_UP, SIDESTEP_DOWN,
+        SIDEWALK_UP, SIDEWALK_DOWN, CROUCH, DASH,
     }
 
     var orbitAng = 0f; private set
@@ -70,6 +75,10 @@ class ArenaSim(private val movement: MovementState) {
     @Volatile var ssDir = 0f         // +1 = up (background), -1 = down
     @Volatile var crouchAmount = 0f  // 0..1 duck blend
     @Volatile var runAmount = 0f     // 0..1 walk->run anim blend
+    @Volatile var swPhase = 0f       // sidewalk stepping cycle (radians)
+    @Volatile var swAmount = 0f      // 0..1 sidewalk anim blend
+    @Volatile var swDir = 0f         // +1 up / -1 down
+    private var swAmt = 0f
 
     fun step(dt: Float) {
         val facing = movement.facing
@@ -123,7 +132,7 @@ class ArenaSim(private val movement: MovementState) {
                 else -> {}
             }
             else -> when {
-                // IDLE / WALK / CROUCH are free states
+                // IDLE / WALK / SIDEWALK / CROUCH are free states
                 bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
                 // no room to run: a dash can't start at the closest distance
                 dashEvt && dist > MIN_DIST + 0.01f -> {
@@ -132,6 +141,9 @@ class ArenaSim(private val movement: MovementState) {
                 ssUpEvt -> startSidestep(+1f)
                 ssDownEvt -> startSidestep(-1f)
                 crouchHeld -> state = MoveState.CROUCH
+                // sidewalk persists while its direction stays held
+                state == MoveState.SIDEWALK_UP && movement.heldUp -> {}
+                state == MoveState.SIDEWALK_DOWN && movement.heldDown -> {}
                 else -> state = when (relDir) {
                     1 -> MoveState.WALK_F
                     -1 -> MoveState.WALK_B
@@ -172,12 +184,27 @@ class ArenaSim(private val movement: MovementState) {
             orbitAng += (ssDisp(u) - ssDisp(uPrev)) * SIDESTEP_ARC * ssDir / dist
             ssProgress = u
             if (ssT >= SIDESTEP_DUR) {
-                state = MoveState.IDLE
+                // direction still held at the end -> flow into a sidewalk
+                state = when {
+                    ssDir > 0f && movement.heldUp -> MoveState.SIDEWALK_UP
+                    ssDir < 0f && movement.heldDown -> MoveState.SIDEWALK_DOWN
+                    else -> MoveState.IDLE
+                }
                 ssProgress = -1f
             }
         } else {
             ssProgress = -1f
         }
+        if (state == MoveState.SIDEWALK_UP || state == MoveState.SIDEWALK_DOWN) {
+            val dir = if (state == MoveState.SIDEWALK_UP) 1f else -1f
+            swDir = dir
+            orbitAng += SIDEWALK_SPEED * dir / dist * dt
+            swPhase += PI.toFloat() * SIDEWALK_SPEED / SIDEWALK_STRIDE * dt
+        }
+        val swTarget =
+            if (state == MoveState.SIDEWALK_UP || state == MoveState.SIDEWALK_DOWN) 1f else 0f
+        swAmt += (swTarget - swAmt) * min(1f, dt * 7f)
+        swAmount = swAmt
         if (state == MoveState.DASH) {
             dashT += dt
             speed = DASH_SPEED
@@ -294,6 +321,8 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
         const val SIDESTEP_ARC = 0.84f      // lateral units circled per step
                                             // (user: was half of a real step)
+        const val SIDEWALK_SPEED = 0.9f     // continuous strafe, units / s
+        const val SIDEWALK_STRIDE = 0.30f   // lateral units per step (cadence)
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
         // speed raised with stride scaled to match: covers ground faster at
         // the SAME animation cadence (speed/stride unchanged, ~2.9 steps/s)
