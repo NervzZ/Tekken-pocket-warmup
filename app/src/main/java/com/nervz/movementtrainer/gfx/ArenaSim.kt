@@ -294,7 +294,9 @@ class ArenaSim(private val movement: MovementState) {
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
         const val SIDESTEP_ARC = 0.42f      // lateral units circled per step
         const val DASH_DUR = 34f / 60f      // 34 frames (user-corrected from 80)
-        const val DASH_SPEED = 2.2f         // a run — much faster than walking
-        const val DASH_STRIDE = 0.75f       // long reaching strides (slow cadence)
+        // speed raised with stride scaled to match: covers ground faster at
+        // the SAME animation cadence (speed/stride unchanged, ~2.9 steps/s)
+        const val DASH_SPEED = 3.0f         // a run — much faster than walking
+        const val DASH_STRIDE = 1.02f       // long reaching strides (slow cadence)
     }
 }
