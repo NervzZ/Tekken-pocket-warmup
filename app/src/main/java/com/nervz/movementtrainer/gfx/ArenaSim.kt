@@ -125,7 +125,10 @@ class ArenaSim(private val movement: MovementState) {
             else -> when {
                 // IDLE / WALK / CROUCH are free states
                 bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
-                dashEvt -> { state = MoveState.DASH; dashT = 0f; dashMaintain = false }
+                // no room to run: a dash can't start at the closest distance
+                dashEvt && dist > MIN_DIST + 0.01f -> {
+                    state = MoveState.DASH; dashT = 0f; dashMaintain = false
+                }
                 ssUpEvt -> startSidestep(+1f)
                 ssDownEvt -> startSidestep(-1f)
                 crouchHeld -> state = MoveState.CROUCH
@@ -179,8 +182,11 @@ class ArenaSim(private val movement: MovementState) {
             dashT += dt
             speed = DASH_SPEED
             dist -= speed * dt
-            // 80f burst; maintained (armed + forward held) runs until release
-            if (dashT >= DASH_DUR && !(dashMaintain && relDir == 1)) {
+            // 34f burst; maintained (armed + forward held) runs until
+            // release; ends instantly when forward motion runs out of room
+            if (dist <= MIN_DIST ||
+                (dashT >= DASH_DUR && !(dashMaintain && relDir == 1))
+            ) {
                 state = MoveState.IDLE
             }
         }
@@ -188,7 +194,7 @@ class ArenaSim(private val movement: MovementState) {
             speed = if (state == MoveState.WALK_F) WALK_FWD_SPEED else -WALK_BACK_SPEED
             dist -= speed * dt
         }
-        dist = dist.coerceIn(1.1f, 5.5f)
+        dist = dist.coerceIn(MIN_DIST, MAX_DIST)
 
         // ---- anim drives
         val stride = when (state) {
@@ -270,6 +276,8 @@ class ArenaSim(private val movement: MovementState) {
     fun charWorldZ() = dist * sin(orbitAng)
 
     companion object {
+        const val MIN_DIST = 1.1f           // closest approach to the opponent
+        const val MAX_DIST = 5.5f
         const val WALK_FWD_SPEED = 0.85f    // arena units / s
         const val WALK_BACK_SPEED = 0.55f
         const val WALK_STRIDE_FWD = 0.30f   // units per step (sets cadence)
