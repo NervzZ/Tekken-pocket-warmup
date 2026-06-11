@@ -683,33 +683,44 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         if (u < 0f) return emptyMap()
         val dirX = sim.ssDir * sim.facingF      // model +x = char's left
         val lean = bump(u, 0.00f, 0.55f)        // upper body leads
-        val push = bump(u, 0.05f, 0.50f)        // outside-leg drive
-        val inStep = bump(u, 0.00f, 0.50f)      // inside foot: lifts on frame
-                                                // ONE, replants at destination
-        val gather = bump(u, 0.45f, 0.95f)      // outside foot joins last
-        // side assignment CALIBRATED BY PROBE, not derived: with the naive
-        // mapping the runtime folded the wrong (away-from-destination) foot
-        // in both directions — ssup must lift the background foot (B in P1)
-        val outside = if (dirX > 0f) "B" else "A"
-        val inside = if (dirX > 0f) "A" else "B"
-        // both-thigh bias: feet held away from the step side -> the
-        // centering shifts the BODY toward it ahead of the feet
+        // INSIDE leg (destination side): the knee comes UP on frame one —
+        // thigh raised hard, shin folded ~parallel to the ground — turns
+        // outward in the air, then plants by mid-step (user choreography)
+        val inLift = bump(u, 0.00f, 0.52f)
+        val inTurn = bump(u, 0.10f, 0.52f)
+        // OUTSIDE leg: pushes while GROUNDED early, then takes its own step
+        // in once the inside foot is planted
+        val push = bump(u, 0.05f, 0.50f)
+        val outStep = bump(u, 0.50f, 0.95f)
+        // sides calibrated by probe + user-confirmed: ssup = step into the
+        // background = B-side destination for P1
+        val inSide = if (dirX > 0f) "B" else "A"
+        val outSide = if (dirX > 0f) "A" else "B"
         val bias = -5f * dirX * lean
         val pushZ = -6f * dirX * push           // outside leg angles out = drive
         val out = HashMap<String, FloatArray>()
-        // this leg pushes early, then takes a REAL step of its own in the
-        // second half (a 5deg "gather" read as sliding on screen — both
-        // feet must visibly lift off and replant, user spec)
-        out["THIGH_$outside"] = floatArrayOf(-4f * gather, 0f, bias + pushZ)
-        out["SHIN_$outside"] = floatArrayOf(-4f * push + 19f * gather, 0f, 0f)
-        out["FOOT_$outside"] = floatArrayOf(
-            (4f * push - 14f * gather) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
+        // high-knee needs headroom: partially unwind this leg's stance coil
+        // while it's airborne (the lead leg is already deeply bent).
+        // NOTE: trim degrees compress ~0.65:1 into world angles through the
+        // conjugated chain — amplitudes below are sized for that (probe-fit)
+        val unwind = 0.65f * inLift
+        for (g in arrayOf("THIGH_$inSide", "SHIN_$inSide", "FOOT_$inSide")) {
+            val v = STANCE_OFFSETS[g] ?: continue
+            out[g] = floatArrayOf(-v[0] * unwind, -v[1] * unwind, -v[2] * unwind)
+        }
+        fun add(g: String, rx: Float, ry: Float, rz: Float) {
+            val cur = out.getOrPut(g) { floatArrayOf(0f, 0f, 0f) }
+            cur[0] += rx; cur[1] += ry; cur[2] += rz
+        }
+        add("THIGH_$inSide", -75f * inLift, 0f, bias + 8f * dirX * inTurn)
+        add("SHIN_$inSide", 115f * inLift, 0f, 0f)
+        add("FOOT_$inSide", -28f * inLift, 0f, -bias * 0.8f - 6f * dirX * inTurn)
+        add("THIGH_$outSide", -4f * outStep, 0f, bias + pushZ)
+        add("SHIN_$outSide", -4f * push + 19f * outStep, 0f, 0f)
+        add(
+            "FOOT_$outSide",
+            (4f * push - 14f * outStep) * 0.6f, 0f, -(bias + pushZ) * 0.8f,
         )
-        // the inside leg STEPS (it used to stay planted and slide): knee
-        // fold lifts the foot while the body travels, grounding it mid-step
-        out["THIGH_$inside"] = floatArrayOf(-5f * inStep, 0f, bias)
-        out["SHIN_$inside"] = floatArrayOf(20f * inStep, 0f, 0f)
-        out["FOOT_$inside"] = floatArrayOf(-15f * inStep * 0.6f, 0f, -bias * 0.8f)
         out["TORSO"] = floatArrayOf(0f, 3f * dirX * lean, -5f * dirX * lean)
         out["HEAD"] = floatArrayOf(0f, -3f * dirX * lean, 2.5f * dirX * lean)
         out["PELVIS"] = floatArrayOf(0f, -3f * dirX * lean, 0f)
