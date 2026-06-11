@@ -9,7 +9,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +35,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -110,13 +108,6 @@ fun MonitorScreen(monitor: InputMonitor) {
                     AndroidView(
                         factory = { ctx -> ArenaView(ctx, monitor.movement) },
                         modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(
-                        Modifier
-                            .align(Alignment.CenterStart)
-                            .fillMaxHeight()
-                            .width(170.dp)
-                            .background(Color(0xFF101418)),
                     )
                     HistoryList(
                         monitor,
