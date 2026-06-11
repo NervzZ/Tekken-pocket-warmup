@@ -114,7 +114,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val RUN_LEAN = 14f            // forward lean over the stance
         const val RUN_GUARD_UNFOLD = 28f    // forearm unfold: fists drop lower
         const val RUN_GUARD_LOOSEN = 6f     // slight upper-arm relax
-        const val JUMP_HEIGHT = 0.95f       // ballistic apex (world units)
+        const val JUMP_HEIGHT = 1.3f        // ballistic apex (world units)
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -741,11 +741,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             animHopY = 0f
             return emptyMap()
         }
-        animHopY = JUMP_HEIGHT * 4f * u * (1f - u)
-        val tuck = bump(u, 0.12f, 0.88f)
-        val arch = bump(u, 0.10f, 0.90f) * sim.jumpDirF
-        val thigh = -34f * tuck
-        val shin = 56f * tuck
+        // phase 1 (first ~6f): grounded knee-compression dip — the explosive
+        // pre-load. Phase 2: fast ballistic to a high apex and back down.
+        val dip = bump(u, 0.00f, 0.20f)
+        val v = ((u - 0.20f) / 0.80f).coerceIn(0f, 1f)
+        animHopY = JUMP_HEIGHT * 4f * v * (1f - v)
+        val tuck = bump(u, 0.28f, 0.86f)
+        val arch = bump(u, 0.24f, 0.90f) * sim.jumpDirF
+        val thigh = -26f * dip - 34f * tuck
+        val shin = 46f * dip + 56f * tuck
         return mapOf(
             "THIGH_A" to floatArrayOf(thigh, 0f, 0f),
             "SHIN_A" to floatArrayOf(shin, 0f, 0f),
@@ -753,8 +757,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "THIGH_B" to floatArrayOf(thigh, 0f, 0f),
             "SHIN_B" to floatArrayOf(shin, 0f, 0f),
             "FOOT_B" to floatArrayOf(-(thigh + shin) * 0.6f, 0f, 0f),
-            "TORSO" to floatArrayOf(9f * arch, 0f, 0f),
-            "HEAD" to floatArrayOf(-4f * arch, 0f, 0f),
+            "TORSO" to floatArrayOf(6f * dip + 9f * arch, 0f, 0f),
+            "HEAD" to floatArrayOf(-2f * dip - 4f * arch, 0f, 0f),
         )
     }
 
