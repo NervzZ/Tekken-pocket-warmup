@@ -78,7 +78,7 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // head has no ball joints to derive direction from; foot centroids are a
         // crude toe-direction proxy. Tuned live via adb, then baked here.
         val TPOSE_TRIM: Map<String, FloatArray> = mapOf(
-            "HEAD" to floatArrayOf(-6f, -17f, 0f),
+            "HEAD" to floatArrayOf(-6f, -26f, 0f),
             "FOOT_A" to floatArrayOf(0f, 0f, 0f),
             "FOOT_B" to floatArrayOf(0f, 0f, 0f),
         )

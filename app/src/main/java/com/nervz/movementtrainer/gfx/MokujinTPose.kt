@@ -10,8 +10,8 @@ val MOKUJIN_TPOSE: Map<String, FloatArray> = mapOf(
     "FARM_B" to floatArrayOf(105.875f, 0.14487f, 0.00998f, -0.98940f),
     "THIGH_A" to floatArrayOf(45.999f, 0.85680f, 0.48076f, 0.18647f),
     "SHIN_A" to floatArrayOf(47.195f, -0.99023f, 0.12549f, -0.06086f),
-    "FOOT_A" to floatArrayOf(17.697f, -0.29528f, 0.09789f, -0.95038f),
+    "FOOT_A" to floatArrayOf(25.843f, 0.31692f, -0.73767f, -0.59616f),
     "THIGH_B" to floatArrayOf(43.739f, 0.20753f, 0.50841f, -0.83573f),
     "SHIN_B" to floatArrayOf(57.101f, -0.58782f, -0.06220f, 0.80659f),
-    "FOOT_B" to floatArrayOf(25.259f, 0.61590f, -0.02759f, -0.78734f),
+    "FOOT_B" to floatArrayOf(30.533f, 0.49599f, -0.70431f, -0.50788f),
 )
