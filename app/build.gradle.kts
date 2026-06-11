@@ -54,4 +54,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("com.google.android.filament:filament-android:1.71.5")
+    implementation("com.google.android.filament:gltfio-android:1.71.5")
 }

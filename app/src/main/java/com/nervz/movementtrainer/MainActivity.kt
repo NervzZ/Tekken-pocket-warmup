@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +46,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.nervz.movementtrainer.gfx.ArenaSim
 import com.nervz.movementtrainer.gfx.ArenaView
+import com.nervz.movementtrainer.gfx.MokujinView
 import com.nervz.movementtrainer.input.BUTTON_ICONS
 import com.nervz.movementtrainer.input.InputMonitor
 
@@ -105,8 +108,13 @@ fun MonitorScreen(monitor: InputMonitor) {
                     Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
                 )
                 Box(Modifier.weight(1f).fillMaxWidth()) {
+                    val sim = remember { ArenaSim(monitor.movement) }
                     AndroidView(
-                        factory = { ctx -> ArenaView(ctx, monitor.movement) },
+                        factory = { ctx -> ArenaView(ctx, sim) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    AndroidView(
+                        factory = { ctx -> MokujinView(ctx, sim) },
                         modifier = Modifier.fillMaxSize(),
                     )
                     HistoryList(
