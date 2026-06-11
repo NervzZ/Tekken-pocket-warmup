@@ -776,8 +776,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val u = sim.cdProgress
         if (u < 0f) return emptyMap()
         val ramp = (u / 0.20f).coerceAtMost(1f)   // sink to FULL crouch fast
-        // the push fires DURING the sink, not after it (user spec)
-        val pushA = bump(u, 0.02f, 0.62f)
+        // the push fires at the VERY START, peaking ~f5 (user spec)
+        val pushA = bump(u, 0.00f, 0.40f)
+        // the cd rides LOWER than the normal crouch (Tekken): extra torso
+        // fold held through the slide, released over the last 20% so the
+        // end pose settles into the exact crouch
+        val low = ramp * (1f - ((u - 0.80f) / 0.20f).coerceIn(0f, 1f))
         val thighB = -32f * ramp                  // lead leg: crouch, planted,
         val shinB = 58f * ramp                    // never lifts — he slides on it
         // rear leg drives back HARD as a TRAIL: extends behind with the toe
@@ -791,10 +795,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "THIGH_B" to floatArrayOf(thighB, 0f, 0f),
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
             "FOOT_B" to floatArrayOf(-(thighB + shinB), 0f, 0f),
-            // torso/head EXACTLY match the manual crouch — the extra push
-            // lean made the cd ride visibly lower than the real crouch
-            "TORSO" to floatArrayOf(10f * ramp, 0f, 0f),
-            "HEAD" to floatArrayOf(-4f * ramp, 0f, 0f),
+            "TORSO" to floatArrayOf(10f * ramp + 9f * low, 0f, 0f),
+            "HEAD" to floatArrayOf(-4f * ramp - 3f * low, 0f, 0f),
         )
     }
 
