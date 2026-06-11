@@ -80,7 +80,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             // approved WORLD orientation (lead toe +28 world-yaw open of the
             // body blade, soles flat) under the current leg chain — re-run
             // model/solve_stance_widen.py after ANY thigh/shin change
-            "FOOT_B" to floatArrayOf(-5.1f, 22.9f, -19.1f),
+            // + sole leveled 6deg about the toe axis (was riding its left
+            // edge) and heading opened ~7 more deg (model/solve_foot_roll.py)
+            "FOOT_B" to floatArrayOf(-3.5f, 27.2f, -10.9f),
             // rear leg solved by position-target IK (model/solve_rear_leg_ik.py):
             // ankle 12cm forward of the v7 plant (18.5cm -> 6.5cm behind the
             // hip), knee pole CONSTRAINED to body-forward (anatomical bend) —
@@ -96,6 +98,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         )
         const val STANCE_BODY_YAW = -22f
         const val ANKLE_REST_Y = 0.083f     // ankle-ball height with sole flat
+        const val WALK_SWING_DEG = 10f      // thigh swing amplitude
+        const val WALK_KNEE_DEG = 16f       // knee-fold clearance amplitude
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -366,10 +370,36 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         else -> {
             val trim = tposeTrims()
             sumInto(trim, STANCE_OFFSETS)
-            if (includeIdle) sumInto(trim, idleOffsets(tSec))
+            if (includeIdle) {
+                sumInto(trim, idleOffsets(tSec))
+                sumInto(trim, walkOffsets())
+            }
             sumInto(trim, Calibration.stanceOverrides)
             MOKUJIN_TPOSE to trim
         }
+    }
+
+    // walk cycle layered over the stance (sums to zero at walkAmount 0, so
+    // it flows out of / back into the idle posture): legs alternate a
+    // forward swing with knee-fold clearance, feet counter-pitch to keep
+    // the soles from scraping, pelvis sways with the cadence. Phase and
+    // blend are driven by ArenaSim (backward walk runs the cycle reversed).
+    private fun walkOffsets(): Map<String, FloatArray> {
+        val amt = sim.walkAmount
+        if (amt < 0.01f) return emptyMap()
+        val p = sim.walkPhase
+        val out = HashMap<String, FloatArray>()
+        for ((side, off) in listOf("A" to 0f, "B" to Math.PI.toFloat())) {
+            val swing = kotlin.math.sin(p + off)
+            val clearance = kotlin.math.max(0f, kotlin.math.sin(p + off + 0.45f))
+            val thigh = -WALK_SWING_DEG * swing * amt
+            val shin = WALK_KNEE_DEG * clearance * amt
+            out["THIGH_$side"] = floatArrayOf(thigh, 0f, 0f)
+            out["SHIN_$side"] = floatArrayOf(shin, 0f, 0f)
+            out["FOOT_$side"] = floatArrayOf(-(thigh + shin) * 0.75f, 0f, 0f)
+        }
+        out["PELVIS"] = floatArrayOf(0f, 2.2f * kotlin.math.sin(p) * amt, 0f)
+        return out
     }
 
     // builds the hierarchical group-world chains for a pose into `out`
@@ -471,13 +501,18 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         if (inStance) {
             val cur = FloatArray(3)
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
+            // vertical ground contact = the LOWER ankle (the planted foot) —
+            // averaging would sink the support foot whenever a walk/step
+            // anim lifts the other one
+            var loY = Float.MAX_VALUE
             for (side in arrayOf("A", "B")) {
                 val ankle = rigPivot("FOOT_$side")
                 transformPoint(groupWorld["SHIN_$side"]!!, ankle, cur)
                 footComp[0] += cur[0] / 2f
-                footComp[1] += (cur[1] - ANKLE_REST_Y) / 2f
+                if (cur[1] < loY) loY = cur[1]
                 footComp[2] += cur[2] / 2f
             }
+            footComp[1] = loY - ANKLE_REST_Y
         } else {
             footComp[0] = 0f; footComp[1] = 0f; footComp[2] = 0f
         }

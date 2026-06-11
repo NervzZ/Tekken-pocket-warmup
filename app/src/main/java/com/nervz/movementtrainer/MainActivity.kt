@@ -13,8 +13,10 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,11 +32,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -47,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
@@ -198,9 +199,15 @@ fun MonitorScreen(monitor: InputMonitor) {
                         Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 6.dp),
                         horizontalAlignment = Alignment.End,
                     ) {
+                        // bare label + mini track/thumb: the Material Switch
+                        // carries a 52x32 min-touch slot + focus ripple that
+                        // read as a darkening square container (user request)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { show3d = !show3d },
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { show3d = !show3d },
                         ) {
                             Text(
                                 if (show3d) "3D ON" else "3D OFF",
@@ -208,17 +215,30 @@ fun MonitorScreen(monitor: InputMonitor) {
                                 fontSize = 11.sp,
                                 letterSpacing = 1.sp,
                             )
-                            Switch(
-                                checked = show3d,
-                                onCheckedChange = { show3d = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = AccentRed,
-                                    checkedTrackColor = Color(0xFF3A2226),
-                                    uncheckedThumbColor = DimText,
-                                    uncheckedTrackColor = Color(0xFF1E242B),
-                                ),
-                                modifier = Modifier.scale(0.6f),
-                            )
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                Modifier
+                                    .size(30.dp, 16.dp)
+                                    .background(
+                                        if (show3d) Color(0xFF3A2226) else Color(0xFF1E242B),
+                                        RoundedCornerShape(8.dp),
+                                    ),
+                                contentAlignment = if (show3d) {
+                                    Alignment.CenterEnd
+                                } else {
+                                    Alignment.CenterStart
+                                },
+                            ) {
+                                Box(
+                                    Modifier
+                                        .padding(horizontal = 2.dp)
+                                        .size(12.dp)
+                                        .background(
+                                            if (show3d) AccentRed else DimText,
+                                            CircleShape,
+                                        ),
+                                )
+                            }
                         }
                         FpsCounter(Modifier)
                     }
