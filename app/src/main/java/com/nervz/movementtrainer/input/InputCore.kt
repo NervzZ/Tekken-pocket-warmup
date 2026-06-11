@@ -291,6 +291,9 @@ class InputMonitor {
         } else if (dir == Direction.N && buttons.isEmpty()) {
             return
         }
+        // completions ending on a HELD input fire on the press, not the
+        // release — the validators see the new state the moment it opens
+        tech.onOpen(dir, buttons.isNotEmpty())
         rows.add(0, HistoryRow(dir, buttons).also { it.frames.intValue = min(999, ticks) })
         while (rows.size > 300) rows.removeAt(rows.size - 1)
     }

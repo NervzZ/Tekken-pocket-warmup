@@ -107,11 +107,12 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
-        const val RUN_SWING = 24f           // sprint thigh swing amplitude
-        const val RUN_KNEE = 40f            // sprint knee-lift amplitude
-        const val RUN_ARM = 26f             // sprint arm-pump amplitude
-        const val RUN_LEAN = 17f            // sprint torso lean (net ~12 after
-                                            // the stance-unwind eats 5)
+        const val RUN_SWING = 26f           // run thigh swing — big strides
+        const val RUN_KNEE = 42f            // run knee-lift amplitude
+        const val RUN_ARM = 14f             // shoulder pump amplitude
+        const val RUN_LEAN = 10f            // forward lean over the stance
+        const val RUN_GUARD_UNFOLD = 28f    // forearm unfold: fists drop lower
+        const val RUN_GUARD_LOOSEN = 6f     // slight upper-arm relax
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -432,20 +433,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         return out
     }
 
-    // Sprint layer (user spec: a run is a COMPLETELY different stance):
-    // unwinds the entire battle stance — guard dropped, counter-yaws gone,
-    // leg asymmetry gone (the root blade unwinds in updateRootTransform) —
-    // and replaces it with a squared-up sprint: deep forward lean, symmetric
-    // driving leg cycle, arms at the sides with bent elbows pumping
-    // opposite the legs.
+    // Run v3 (user spec): STEMS FROM THE BATTLE STANCE — no stance unwind.
+    // Much bigger strides than the walk, a bit of forward lean, the guard
+    // loosened LOWER (forearms unfold so the fists drop), and both
+    // shoulders pumping up/down with the running cadence.
     private fun runOffsets(): Map<String, FloatArray> {
         val r = sim.runAmount
         if (r < 0.01f) return emptyMap()
         val p = sim.walkPhase
         val out = HashMap<String, FloatArray>()
-        for ((g, v) in STANCE_OFFSETS) {
-            out[g] = floatArrayOf(-v[0] * r, -v[1] * r, -v[2] * r)
-        }
         fun add(g: String, rx: Float, ry: Float, rz: Float) {
             val cur = out.getOrPut(g) { floatArrayOf(0f, 0f, 0f) }
             cur[0] += rx * r; cur[1] += ry * r; cur[2] += rz * r
@@ -459,17 +455,15 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             add("SHIN_$side", shin, 0f, 0f)
             add("FOOT_$side", -(thigh + shin) * 0.7f, 0f, 0f)
         }
-        // arm pump: opposite arm to leg (B arm forward with A leg); upper
-        // arms tucked close to the body (probe showed ~30deg lateral flare
-        // at -75), elbows ~45-50deg
+        // shoulders pump opposite the same-side leg; guard drops lower
         val pump = RUN_ARM * kotlin.math.sin(p)
-        add("UARM_B", -pump, 0f, -86f)
-        add("FARM_B", 0f, 0f, 55f)
-        add("UARM_A", pump, 0f, 86f)
-        add("FARM_A", 0f, 0f, -55f)
+        add("UARM_B", -pump, 0f, RUN_GUARD_LOOSEN)
+        add("FARM_B", 0f, 0f, -RUN_GUARD_UNFOLD)
+        add("UARM_A", pump, 0f, -RUN_GUARD_LOOSEN)
+        add("FARM_A", 0f, 0f, RUN_GUARD_UNFOLD)
         add("TORSO", RUN_LEAN, 0f, 0f)
-        add("HEAD", -5f, 0f, 0f)
-        add("PELVIS", 0f, 4f * kotlin.math.sin(p), 0f)
+        add("HEAD", -4f, 0f, 0f)
+        add("PELVIS", 0f, 3f * kotlin.math.sin(p), 0f)
         return out
     }
 
@@ -721,10 +715,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
                 (frameTimeNanos / 1_000_000_000.0 * 30.0).toFloat() % 360f
             // base yaw flips with the side; the stance blade rides ON TOP so
             // P1->P2 is an exact 180. Multiplying the sum by facing flipped
-            // the blade too: P2 ended up -68 vs +68 = 136 deg (user-caught).
-            // A sprint squares toward the run: the blade unwinds with run
-            else -> BASE_YAW_DEG * sim.facingF +
-                STANCE_BODY_YAW * (1f - sim.runAmount)
+            // the blade too: P2 ended up -68 vs +68 = 136 deg (user-caught)
+            else -> BASE_YAW_DEG * sim.facingF + STANCE_BODY_YAW
         }
         val inStance = !Calibration.testPose && !Calibration.tPose
         // animHopY rides on top of the foot seat so hops can leave the ground

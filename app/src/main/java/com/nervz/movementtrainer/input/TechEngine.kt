@@ -38,6 +38,28 @@ class TechEngine(private val movement: MovementState) {
     private var k = K.IDLE
     private var w = W.IDLE
     private var dash = DSH.IDLE
+    private var firedB = false   // backdash fired on the OPEN of the final b
+    private var firedF = false   // dash fired on the OPEN of the final f
+
+    // Called when a new input state OPENS. Sequence completions fire on the
+    // PRESS of the final input — a held last back is still a backdash
+    // (user spec: any b,b counts regardless of holding the second), and the
+    // dash-maintain third f must fire while held. The close-side
+    // transitions below skip the increment when the open already fired.
+    fun onOpen(dirPhysical: Direction, hasButtons: Boolean) {
+        if (hasButtons) return
+        val d = logical(dirPhysical)
+        if (d == Direction.B &&
+            (k == K.N1 || k == K.BD_N || k == K.AFTER_DB || k == K.AFTER_DB_N)
+        ) {
+            movement.backdashes.incrementAndGet()
+            firedB = true
+        }
+        if (d == Direction.F && dash == DSH.N1) {
+            movement.dashes.incrementAndGet()
+            firedF = true
+        }
+    }
 
     fun setSide(isP2: Boolean) {
         p2 = isP2
@@ -68,6 +90,9 @@ class TechEngine(private val movement: MovementState) {
                 else -> {}
             }
         }
+        // open-fire flags live exactly from a state's open to its close
+        firedB = false
+        firedF = false
     }
 
     private fun logical(d: Direction): Direction = if (!p2) d else when (d) {
@@ -93,8 +118,8 @@ class TechEngine(private val movement: MovementState) {
         k = when (k) {
             K.IDLE -> if (d == Direction.B && quick) K.B1 else K.IDLE
             K.B1 -> if (d == Direction.N && shortGap) K.N1 else kFail(d, quick)
-            K.N1 -> if (d == Direction.B && quick) {
-                movement.backdashes.incrementAndGet()
+            K.N1 -> if (d == Direction.B && (quick || firedB)) {
+                if (!firedB) movement.backdashes.incrementAndGet()
                 K.BD
             } else kFail(d, quick)
             K.BD -> when {
@@ -112,22 +137,22 @@ class TechEngine(private val movement: MovementState) {
                     movement.kbdCancels.incrementAndGet()
                     K.AFTER_DB
                 }
-                d == Direction.B && quick -> {
-                    movement.backdashes.incrementAndGet()
+                d == Direction.B && (quick || firedB) -> {
+                    if (!firedB) movement.backdashes.incrementAndGet()
                     K.BD
                 }
                 else -> kFail(d, quick)
             }
             K.AFTER_DB -> when {
-                d == Direction.B && quick -> {
-                    movement.backdashes.incrementAndGet()
+                d == Direction.B && (quick || firedB) -> {
+                    if (!firedB) movement.backdashes.incrementAndGet()
                     K.BD
                 }
                 d == Direction.N && shortGap -> K.AFTER_DB_N
                 else -> kFail(d, quick)
             }
-            K.AFTER_DB_N -> if (d == Direction.B && quick) {
-                movement.backdashes.incrementAndGet()
+            K.AFTER_DB_N -> if (d == Direction.B && (quick || firedB)) {
+                if (!firedB) movement.backdashes.incrementAndGet()
                 K.BD
             } else kFail(d, quick)
         }
@@ -183,8 +208,8 @@ class TechEngine(private val movement: MovementState) {
         dash = when (dash) {
             DSH.IDLE -> if (d == Direction.F && frames <= maxHold) DSH.F1 else DSH.IDLE
             DSH.F1 -> if (d == Direction.N && frames <= maxGap) DSH.N1 else DSH.IDLE
-            DSH.N1 -> if (d == Direction.F && frames <= maxHold) {
-                movement.dashes.incrementAndGet()
+            DSH.N1 -> if (d == Direction.F && (frames <= maxHold || firedF)) {
+                if (!firedF) movement.dashes.incrementAndGet()
                 DSH.F1
             } else DSH.IDLE
         }
