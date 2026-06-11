@@ -503,15 +503,19 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         // all offsets reach zero by ~u0.54: once the step is done the pose
         // IS the breathing idle for the rest of the recovery — no settle
         // layer (a late torso forward-tilt read as a janky spring-back bob)
-        val push = bump(u, 0.00f, 0.28f)    // instant left-leg drive (heel-up)
+        val push = bump(u, 0.00f, 0.30f)    // lead-leg drive: knee EXTENDS
         val liftA = bump(u, 0.02f, 0.28f)   // right foot steps back, grounded ~f10
-        val liftB = bump(u, 0.24f, 0.54f)   // left foot right behind it, lands ~f18
+        val liftB = bump(u, 0.26f, 0.56f)   // then the lead folds, lifts, plants
+        val leanBd = bump(u, 0.00f, 0.52f)  // lean back held through the travel
         animHopY = 0f
 
         val thighA = 6f * liftA
         val shinA = 22f * liftA
-        val thighB = 5f * push - 6f * liftB
-        val shinB = -10f * push + 18f * liftB
+        // the push nearly fully unflexes the lead knee (stance 52 - 42 trim)
+        // while the thigh trails back — a hard straight-leg drive; then the
+        // knee re-flexes to lift the foot home
+        val thighB = 12f * push - 8f * liftB
+        val shinB = -42f * push + 30f * liftB
         return mapOf(
             "THIGH_A" to floatArrayOf(thighA, 0f, 0f),
             "SHIN_A" to floatArrayOf(shinA, 0f, 0f),
@@ -520,8 +524,8 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             "SHIN_B" to floatArrayOf(shinB, 0f, 0f),
             // 0.5 comp leaves a heel-up residual on the pushing foot
             "FOOT_B" to floatArrayOf(-(thighB + shinB) * 0.5f, 0f, 0f),
-            "TORSO" to floatArrayOf(-6f * push, 0f, 0f),
-            "HEAD" to floatArrayOf(3f * push, 0f, 0f),
+            "TORSO" to floatArrayOf(-9f * leanBd, 0f, 0f),
+            "HEAD" to floatArrayOf(4f * leanBd, 0f, 0f),
             "PELVIS" to floatArrayOf(0f, -3f * push, 0f),
         )
     }
