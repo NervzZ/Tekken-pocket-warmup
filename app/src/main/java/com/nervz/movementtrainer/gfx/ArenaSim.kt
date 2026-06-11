@@ -22,12 +22,18 @@ import kotlin.math.sin
 //               directional input after buffering invalidates the buffer.
 //   SIDESTEP_UP / SIDESTEP_DOWN — up/down tap; 24 frames circling the
 //               opponent (orbit arc). UNCANCELABLE for now (rules TBD).
-//   CROUCH    — held down/down-back; a FREE state: ducks in ~3-4 frames,
+//   CROUCH    — held down/down-back; a FREE state: ducks in ~7-8 frames,
 //               locks nothing (any event fires straight out of it), and
 //               exits the moment the hold releases.
+//   DASH      — double-tap forward; a run, much faster than walking, for
+//               ~80 frames. A third forward tap (dash event mid-dash) ARMS
+//               maintain: holding that last forward keeps the run going
+//               past the 80 frames until released. Other events dropped.
 class ArenaSim(private val movement: MovementState) {
 
-    enum class MoveState { IDLE, WALK_F, WALK_B, BACKDASH, SIDESTEP_UP, SIDESTEP_DOWN, CROUCH }
+    enum class MoveState {
+        IDLE, WALK_F, WALK_B, BACKDASH, SIDESTEP_UP, SIDESTEP_DOWN, CROUCH, DASH,
+    }
 
     var orbitAng = 0f; private set
     var dist = 3.4f; private set
@@ -40,9 +46,13 @@ class ArenaSim(private val movement: MovementState) {
     private var seenBd = 0
     private var seenSsUp = 0
     private var seenSsDown = 0
+    private var seenDash = 0
     private var bdT = 0f
     private var bdBuffered = false
     private var ssT = 0f
+    private var dashT = 0f
+    private var dashMaintain = false
+    private var runAmt = 0f
 
     // outputs shared with the Filament layer
     @Volatile var camEyeX = 2.5f
@@ -58,6 +68,7 @@ class ArenaSim(private val movement: MovementState) {
     @Volatile var ssProgress = -1f   // sidestep 0..1, or -1 when inactive
     @Volatile var ssDir = 0f         // +1 = up (background), -1 = down
     @Volatile var crouchAmount = 0f  // 0..1 duck blend
+    @Volatile var runAmount = 0f     // 0..1 walk->run anim blend
 
     fun step(dt: Float) {
         val facing = movement.facing
@@ -73,6 +84,9 @@ class ArenaSim(private val movement: MovementState) {
         while (seenSsUp < suCount) { seenSsUp++; ssUpEvt = true }
         val sdCount = movement.sidestepsDown.get()
         while (seenSsDown < sdCount) { seenSsDown++; ssDownEvt = true }
+        var dashEvt = false
+        val dashCount = movement.dashes.get()
+        while (seenDash < dashCount) { seenDash++; dashEvt = true }
 
         val relDir = movement.heldX * facing   // +1 = toward the opponent
         val crouchHeld = movement.crouching
@@ -96,9 +110,14 @@ class ArenaSim(private val movement: MovementState) {
             MoveState.SIDESTEP_UP, MoveState.SIDESTEP_DOWN -> {
                 // uncancelable: all events are consumed and dropped
             }
+            MoveState.DASH -> {
+                // a third forward tap arms maintain; other events dropped
+                if (dashEvt) dashMaintain = true
+            }
             else -> when {
                 // IDLE / WALK / CROUCH are free states
                 bdEvt -> { state = MoveState.BACKDASH; bdT = 0f; bdBuffered = false }
+                dashEvt -> { state = MoveState.DASH; dashT = 0f; dashMaintain = false }
                 ssUpEvt -> startSidestep(+1f)
                 ssDownEvt -> startSidestep(-1f)
                 crouchHeld -> state = MoveState.CROUCH
@@ -148,6 +167,15 @@ class ArenaSim(private val movement: MovementState) {
         } else {
             ssProgress = -1f
         }
+        if (state == MoveState.DASH) {
+            dashT += dt
+            speed = DASH_SPEED
+            dist -= speed * dt
+            // 80f burst; maintained (armed + forward held) runs until release
+            if (dashT >= DASH_DUR && !(dashMaintain && relDir == 1)) {
+                state = MoveState.IDLE
+            }
+        }
         if (state == MoveState.WALK_F || state == MoveState.WALK_B) {
             speed = if (state == MoveState.WALK_F) WALK_FWD_SPEED else -WALK_BACK_SPEED
             dist -= speed * dt
@@ -155,7 +183,11 @@ class ArenaSim(private val movement: MovementState) {
         dist = dist.coerceIn(1.1f, 5.5f)
 
         // ---- anim drives
-        val stride = if (state == MoveState.WALK_B) WALK_STRIDE_BACK else WALK_STRIDE_FWD
+        val stride = when (state) {
+            MoveState.DASH -> DASH_STRIDE
+            MoveState.WALK_B -> WALK_STRIDE_BACK
+            else -> WALK_STRIDE_FWD
+        }
         if (speed != 0f) {
             walkPhase += PI.toFloat() * speed / stride * dt
             val dTarget = if (speed > 0f) 1f else -1f
@@ -166,11 +198,15 @@ class ArenaSim(private val movement: MovementState) {
         val wEase = if (state == MoveState.BACKDASH) 14f else 7f
         walkAmt += (wTarget - walkAmt) * min(1f, dt * wEase)
         walkAmount = walkAmt
-        // duck fast (~3-4 frames), rise a touch slower
+        // duck in ~7-8 frames (user-tuned from 3-4: too snappy), rise gentler
         val cTarget = if (state == MoveState.CROUCH) 1f else 0f
-        val cEase = if (cTarget > crouchAmt) 45f else 18f
+        val cEase = if (cTarget > crouchAmt) 22f else 18f
         crouchAmt += (cTarget - crouchAmt) * min(1f, dt * cEase)
         crouchAmount = crouchAmt
+        // walk->run blend for the anim layer
+        val rTarget = if (state == MoveState.DASH) 1f else 0f
+        runAmt += (rTarget - runAmt) * min(1f, dt * 8f)
+        runAmount = runAmt
 
         // ---- camera
         val targetCamX = facingF * dist * 0.12f
@@ -235,5 +271,8 @@ class ArenaSim(private val movement: MovementState) {
         const val BD_MOVE_SPLIT = 0.88f     // share of distance in frames 0-19
         const val SIDESTEP_DUR = 24f / 60f  // 24 frames
         const val SIDESTEP_ARC = 0.42f      // lateral units circled per step
+        const val DASH_DUR = 80f / 60f      // 80 frames
+        const val DASH_SPEED = 2.2f         // a run — much faster than walking
+        const val DASH_STRIDE = 0.55f       // long running strides
     }
 }

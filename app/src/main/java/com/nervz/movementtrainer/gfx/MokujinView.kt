@@ -107,6 +107,9 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         const val WALK_KNEE_B = 12f
         const val WALK_LEAN_B = 6f          // torso lean back while retreating
         const val WALK_HIP_BIAS_B = 4f      // hips drawn back vs the feet
+        const val RUN_SWING_EXTRA = 9f      // dash: longer thigh swings
+        const val RUN_KNEE_EXTRA = 13f      // dash: higher knee lift
+        const val RUN_LEAN_F = 9f           // dash: torso leans into the run
 
         private fun rigPivot(name: String) = MOKUJIN_RIG.first { it.name == name }.pivot
 
@@ -399,11 +402,13 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
         val amt = sim.walkAmount
         if (amt < 0.01f) return emptyMap()
         val p = sim.walkPhase
-        // cross-fade the forward/backward parameter sets on the smoothed dir
+        // cross-fade the forward/backward parameter sets on the smoothed
+        // dir; the run blend amplifies the cycle into long driving strides
         val f = kotlin.math.max(0f, sim.walkDir)
         val bk = kotlin.math.max(0f, -sim.walkDir)
-        val swingAmp = WALK_SWING_F * f + WALK_SWING_B * bk
-        val kneeAmp = WALK_KNEE_F * f + WALK_KNEE_B * bk
+        val run = sim.runAmount
+        val swingAmp = WALK_SWING_F * f + WALK_SWING_B * bk + RUN_SWING_EXTRA * run
+        val kneeAmp = WALK_KNEE_F * f + WALK_KNEE_B * bk + RUN_KNEE_EXTRA * run
         // hips drawn back relative to the feet (thigh bias is cancelled into
         // a real body shift by the ankle centering); torso leans back with a
         // head counter-nod — the retreating upper-body stance shift
@@ -418,9 +423,10 @@ class MokujinView(context: Context, private val sim: ArenaSim) : SurfaceView(con
             out["SHIN_$side"] = floatArrayOf(shin, 0f, 0f)
             out["FOOT_$side"] = floatArrayOf(-(thigh + shin) * 0.75f, 0f, 0f)
         }
-        out["TORSO"] = floatArrayOf(-WALK_LEAN_B * bk * amt, 0f, 0f)
-        out["HEAD"] = floatArrayOf(3f * bk * amt, 0f, 0f)
-        out["PELVIS"] = floatArrayOf(0f, 2.2f * kotlin.math.sin(p) * amt, 0f)
+        // backward retreat leans back; a run leans INTO the sprint
+        out["TORSO"] = floatArrayOf((-WALK_LEAN_B * bk + RUN_LEAN_F * run) * amt, 0f, 0f)
+        out["HEAD"] = floatArrayOf((3f * bk - 4f * run) * amt, 0f, 0f)
+        out["PELVIS"] = floatArrayOf(0f, (2.2f + 1.5f * run) * kotlin.math.sin(p) * amt, 0f)
         return out
     }
 
