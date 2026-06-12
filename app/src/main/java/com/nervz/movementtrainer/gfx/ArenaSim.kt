@@ -57,8 +57,8 @@ class ArenaSim(private val movement: MovementState) {
     var orbitAng = 0f; private set
     var dist = 3.4f; private set
 
-    private var camX = 0.4f
-    private var camZoom = 1.7f
+    private var camX = 0.61f       // matches the start dist (3.4 * 0.18)
+    private var camZoom = 1.48f    // matches the start dist (3.4 / 2.3)
     private var walkAmt = 0f
     private var dirSm = 0f
     private var crouchAmt = 0f
@@ -378,9 +378,16 @@ class ArenaSim(private val movement: MovementState) {
         // camera on either side. (The old +2.5*zoom x-offset skewed the
         // orbit: P1 showed the mokujin's front with the dot nearer the
         // camera, P2 the mirror — user-caught.)
-        val targetCamX = facingF * dist * 0.12f
+        // unzoom starts later and stays tighter (was dist/2 with a 0.12
+        // camera bias): the pivot dot rides pinned at ~88% of the way to the
+        // screen edge (~82% before), the character is ~15% bigger at any
+        // distance, and the camera leans a touch more toward the dot to make
+        // the framing possible at all — at this portrait aspect the dot
+        // fraction is (1-bias)*k/2.15, which without the extra bias hits the
+        // screen edge at k~2.4 (k=2.6 measured off-screen)
+        val targetCamX = facingF * dist * 0.18f
         camX += (targetCamX - camX) * 0.04f
-        val targetZoom = (dist / 2.0f).coerceAtLeast(1f)
+        val targetZoom = (dist / 2.3f).coerceAtLeast(1f)
         camZoom += (targetZoom - camZoom) * 0.04f
         camEyeX = camX
         camEyeY = 2.4f * camZoom
@@ -447,7 +454,7 @@ class ArenaSim(private val movement: MovementState) {
 
     companion object {
         const val MIN_DIST = 1.1f           // closest approach to the opponent
-        const val MAX_DIST = 5.5f
+        const val MAX_DIST = 6.5f           // arena radius — floor/grid/rim end here
         const val WALK_FWD_SPEED = 0.85f    // arena units / s
         const val WALK_BACK_SPEED = 0.55f
         const val WALK_STRIDE_FWD = 0.30f   // units per step (sets cadence)

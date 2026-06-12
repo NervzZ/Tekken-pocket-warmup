@@ -38,6 +38,17 @@ class TechEngine(private val movement: MovementState) {
     val wavuLive = mutableStateOf(false)
     private var wdGap = 0
     private var wdElapsed = 0
+    // KBD SPEED: clean reps/s, measured over its own window (kbdReps) rather
+    // than the machine-owned streak — the streak legally survives long pauses
+    // (a held final b via firedB never kFails), and averaging across a pause
+    // would dilute the readout. The window freezes for reading when the reps
+    // stop (45f gap) or the machine resets the streak, and the next clean rep
+    // starts a fresh measurement.
+    val kbdSpeed = mutableFloatStateOf(0f)
+    val kbdLive = mutableStateOf(false)
+    private var kbdReps = 0
+    private var kbdGap = 0
+    private var kbdElapsed = 0
 
     private var p2 = false
     private val maxHold = 20
@@ -68,7 +79,7 @@ class TechEngine(private val movement: MovementState) {
         ) {
             movement.backdashes.incrementAndGet()
             // the CLEAN kbd: db-cancel rolled straight into this b
-            if (k == K.AFTER_DB) kbdStreak.intValue++
+            if (k == K.AFTER_DB) onKbdRep()
             firedB = true
         }
         if (d == Direction.F && dash == DSH.N1) {
@@ -94,9 +105,33 @@ class TechEngine(private val movement: MovementState) {
         wavuLive.value = false
         wdGap = 0
         wdElapsed = 0
+        kbdSpeed.floatValue = 0f
+        kbdLive.value = false
+        kbdReps = 0
+        kbdGap = 0
+        kbdElapsed = 0
         k = K.IDLE
         w = W.IDLE
         dash = DSH.IDLE
+    }
+
+    // a clean KBD rep (db rolled straight into b — or debug-injected): drive
+    // the streak and the live reps/s average, wavu-speed style
+    fun onKbdRep() {
+        if (!kbdLive.value) {
+            // window closed (gap-frozen / machine reset / first ever rep):
+            // this rep starts a fresh measurement
+            kbdReps = 0
+            kbdElapsed = 0
+            kbdSpeed.floatValue = 0f
+            kbdLive.value = true
+        } else if (kbdElapsed > 0) {
+            // reps (pre-increment) = completed intervals since window rep #1
+            kbdSpeed.floatValue = kbdReps * 60f / kbdElapsed
+        }
+        kbdReps++
+        kbdStreak.intValue++
+        kbdGap = 0
     }
 
     // a crouchdash happened (sequence-validated or debug-injected): drive
@@ -125,6 +160,16 @@ class TechEngine(private val movement: MovementState) {
                 wdStreak.intValue = 0
                 wavuLive.value = false
             }
+        }
+        // kbd speed: the measurement window closes when the reps stop (45f
+        // gap — reachable by legal-but-stalling play, e.g. a held final b or
+        // a slow 50f rep cycle, in which case the meter simply restarts with
+        // the next rep) or when the machine resets the streak. The displayed
+        // STREAK stays machine-owned, unlike the gap-owned wavedash.
+        if (kbdLive.value) {
+            kbdGap += frames
+            kbdElapsed += frames
+            if (kbdGap > 45 || kbdStreak.intValue == 0) kbdLive.value = false
         }
     }
 
@@ -201,7 +246,7 @@ class TechEngine(private val movement: MovementState) {
                 d == Direction.B && (quick || firedB) -> {
                     if (!firedB) {
                         movement.backdashes.incrementAndGet()
-                        kbdStreak.intValue++
+                        onKbdRep()
                     }
                     K.BD
                 }

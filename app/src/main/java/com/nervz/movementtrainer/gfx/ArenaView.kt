@@ -11,8 +11,8 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.round
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 // Ground layer: solid floor, scrolling/rotating grid texture, pivot dot, and
 // the character's blob shadow. Also the thread that steps the shared ArenaSim.
@@ -32,10 +32,11 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
     private var uMvp = 0
     private var uColor = 0
 
-    private lateinit var cube: FloatBuffer
     private lateinit var grid: FloatBuffer
     private lateinit var disc: FloatBuffer
+    private lateinit var rim: FloatBuffer
     private var discVertCount = 0
+    private var rimVertCount = 0
     private var gridLineCount = 0
 
     private val proj = FloatArray(16)
@@ -70,9 +71,9 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         uMvp = GLES20.glGetUniformLocation(program, "uMvp")
         uColor = GLES20.glGetUniformLocation(program, "uColor")
 
-        cube = floatBufferOf(*CUBE_VERTS)
         buildGrid()
         buildDisc()
+        buildRim()
         lastNanos = System.nanoTime()
     }
 
@@ -97,16 +98,25 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         )
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
 
-        // solid ground plane (static in character space)
-        part(0f, -0.05f, 0f, 80f, 0.1f, 80f, 0.085f, 0.104f, 0.124f, 1f)
+        // the arena is a disc of radius MAX_DIST around the orbit pivot: the
+        // floor, grid, and rim all end at the movement limit so the boundary
+        // is visible. The pivot (world origin) lands exactly on the red dot
+        // at char-space (facing*dist, 0), and the disc/rim are rotation-
+        // invariant, so both draw directly there; only the grid carries the
+        // world rotation.
+        val px = sim.facingF * sim.dist
+        dot(px, 0f, 0f, ArenaSim.MAX_DIST, 0.085f, 0.104f, 0.124f, 1f)
 
-        // grid texture carrying the orbit scroll/rotation
+        // grid texture carrying the orbit scroll/rotation, clipped at the
+        // rim: the chord geometry is static in WORLD space, so it translates
+        // by the true -C offset (the lattice round() trick needed periodic
+        // geometry and no longer applies)
         val cx = sim.charWorldX()
         val cz = sim.charWorldZ()
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, 0f, 0.012f, 0f)
         Matrix.rotateM(model, 0, sim.worldRotationDeg(), 0f, 1f, 0f)
-        Matrix.translateM(model, 0, round(cx) - cx, 0f, round(cz) - cz)
+        Matrix.translateM(model, 0, -cx, 0f, -cz)
         Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform4f(uColor, 0.55f, 0.65f, 0.75f, 0.21f)
@@ -116,27 +126,13 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, gridLineCount * 2)
         GLES20.glDisableVertexAttribArray(aPos)
 
+        // boundary rim — the visible "you can't move past this" line
+        ring(px, 0.018f, 0f, ArenaSim.MAX_DIST, 0.55f, 0.65f, 0.75f, 0.55f)
+
         // round blob shadow under the character (the alignment-reference red
         // dot served its purpose and is retired); red dot = the orbit pivot
         dot(0f, 0.022f, 0f, 0.42f, 0.02f, 0.03f, 0.04f, 0.5f)
-        dot(sim.facingF * sim.dist, 0.03f, 0f, 0.105f, 1f, 0.13f, 0.16f, 0.95f)
-    }
-
-    private fun part(
-        x: Float, y: Float, z: Float,
-        sx: Float, sy: Float, sz: Float,
-        r: Float, g: Float, b: Float, a: Float,
-    ) {
-        Matrix.setIdentityM(model, 0)
-        Matrix.translateM(model, 0, x, y, z)
-        Matrix.scaleM(model, 0, sx, sy, sz)
-        Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
-        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
-        GLES20.glUniform4f(uColor, r, g, b, a)
-        GLES20.glEnableVertexAttribArray(aPos)
-        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, cube)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36)
-        GLES20.glDisableVertexAttribArray(aPos)
+        dot(px, 0.03f, 0f, 0.105f, 1f, 0.13f, 0.16f, 0.95f)
     }
 
     // flat disc (triangle fan) lying in the ground plane
@@ -156,8 +152,28 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(aPos)
     }
 
+    // flat circle outline (line loop) lying in the ground plane
+    private fun ring(
+        x: Float, y: Float, z: Float, radius: Float,
+        r: Float, g: Float, b: Float, a: Float,
+    ) {
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, x, y, z)
+        Matrix.scaleM(model, 0, radius, 1f, radius)
+        Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUniform4f(uColor, r, g, b, a)
+        GLES20.glEnableVertexAttribArray(aPos)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 0, rim)
+        GLES20.glLineWidth(3f)
+        GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, rimVertCount)
+        GLES20.glDisableVertexAttribArray(aPos)
+    }
+
     private fun buildDisc() {
-        val segs = 32
+        // 64 segments: the same fan draws the tiny dots AND the arena floor,
+        // whose rim is big enough to show 32-segment facets
+        val segs = 64
         val verts = ArrayList<Float>(3 * (segs + 2))
         verts.addAll(listOf(0f, 0f, 0f))
         for (i in 0..segs) {
@@ -168,11 +184,26 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
         disc = floatBufferOf(*verts.toFloatArray())
     }
 
+    private fun buildRim() {
+        val segs = 96
+        val verts = ArrayList<Float>(3 * segs)
+        for (i in 0 until segs) {
+            val a = i.toDouble() / segs * 2.0 * Math.PI
+            verts.addAll(listOf(cos(a).toFloat(), 0f, sin(a).toFloat()))
+        }
+        rimVertCount = segs
+        rim = floatBufferOf(*verts.toFloatArray())
+    }
+
+    // world-space integer grid clipped to the arena circle: chords of the
+    // MAX_DIST disc around the world origin (the orbit pivot)
     private fun buildGrid() {
+        val r = ArenaSim.MAX_DIST
         val lines = ArrayList<Float>()
-        for (i in -16..16) {
-            lines.addAll(listOf(i.toFloat(), 0f, 16f, i.toFloat(), 0f, -16f))
-            lines.addAll(listOf(16f, 0f, i.toFloat(), -16f, 0f, i.toFloat()))
+        for (i in -r.toInt()..r.toInt()) {
+            val h = sqrt(r * r - i * i)   // half-chord at lattice offset i
+            lines.addAll(listOf(i.toFloat(), 0f, h, i.toFloat(), 0f, -h))
+            lines.addAll(listOf(h, 0f, i.toFloat(), -h, 0f, i.toFloat()))
         }
         gridLineCount = lines.size / 6
         grid = floatBufferOf(*lines.toFloatArray())
@@ -190,21 +221,4 @@ class ArenaRenderer(private val sim: ArenaSim) : GLSurfaceView.Renderer {
             .asFloatBuffer()
             .put(values)
             .apply { position(0) }
-
-    companion object {
-        private val CUBE_VERTS = floatArrayOf(
-            -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-            0.5f, 0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f,
-            0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f,
-            -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
-            0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f,
-            0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
-        )
-    }
 }
