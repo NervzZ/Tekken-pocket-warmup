@@ -160,18 +160,34 @@ class InputMonitor {
         val label = TEKKEN_DEFAULT[event.keyCode] ?: KEYBOARD_TEKKEN[event.keyCode]
         val isStart = event.keyCode == KeyEvent.KEYCODE_BUTTON_START ||
             event.keyCode == KeyEvent.KEYCODE_SPACE
-        val isCalToggle = event.keyCode == KeyEvent.KEYCODE_C ||
-            event.keyCode == KeyEvent.KEYCODE_BUTTON_SELECT
-        val isCalPause = event.keyCode == KeyEvent.KEYCODE_X
-        val isCalPose = event.keyCode == KeyEvent.KEYCODE_V
-        val isTPose = event.keyCode == KeyEvent.KEYCODE_T
-        val isTuneKey =
+        // debug/calibration binds accept REAL KEYBOARDS ONLY — never a
+        // controller. The DualSense Share button arrives as BUTTON_SELECT
+        // and used to trigger the calibration tour (user-caught); pads must
+        // not be able to reach ANY debug bind, so every one of them is
+        // gated on a non-gamepad alphabetic-keyboard source.
+        // judged on the EVENT's source, not the device's capability mask —
+        // the virtual keyboard device claims every source incl. gamepad, so
+        // device-level checks block adb/emulator keys. A controller's button
+        // events always carry GAMEPAD/JOYSTICK in the event source.
+        val eventFromPad =
+            (event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+                (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+        val fromRealKeyboard = !eventFromPad && (
+            event.device == null ||
+                event.device?.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+            )
+        val isCalToggle = fromRealKeyboard && event.keyCode == KeyEvent.KEYCODE_C
+        val isCalPause = fromRealKeyboard && event.keyCode == KeyEvent.KEYCODE_X
+        val isCalPose = fromRealKeyboard && event.keyCode == KeyEvent.KEYCODE_V
+        val isTPose = fromRealKeyboard && event.keyCode == KeyEvent.KEYCODE_T
+        val isTuneKey = fromRealKeyboard && (
             event.keyCode == KeyEvent.KEYCODE_G || event.keyCode == KeyEvent.KEYCODE_H ||
                 event.keyCode == KeyEvent.KEYCODE_B || event.keyCode == KeyEvent.KEYCODE_N ||
                 event.keyCode == KeyEvent.KEYCODE_Q || event.keyCode == KeyEvent.KEYCODE_W ||
                 event.keyCode == KeyEvent.KEYCODE_E || event.keyCode == KeyEvent.KEYCODE_R ||
                 event.keyCode == KeyEvent.KEYCODE_D || event.keyCode == KeyEvent.KEYCODE_F ||
                 event.keyCode == KeyEvent.KEYCODE_A || event.keyCode == KeyEvent.KEYCODE_S
+            )
         if (!isPad && !isDpad && label == null && !isStart && !isCalToggle && !isCalPause &&
             !isCalPose && !isTPose && !isTuneKey && event.keyCode !in BUTTON_NAMES
         ) return false

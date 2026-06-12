@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.hardware.input.InputManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -109,6 +110,11 @@ class MainActivity : ComponentActivity() {
                         // routes through the tech engine so the wavedash
                         // streak + wavu speed counters see injected cds too
                         "cd" -> monitor.tech.onCdEvent()
+                        // a clean KBD rep = a backdash + the streak/speed bump
+                        "kbd" -> {
+                            monitor.movement.backdashes.incrementAndGet()
+                            monitor.tech.onKbdRep()
+                        }
                     }
                 }
             },
@@ -140,6 +146,24 @@ class MainActivity : ComponentActivity() {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (monitor.onMotion(event)) return true
         return super.dispatchGenericMotionEvent(event)
+    }
+
+    // the DualSense touchpad acts as a system mouse: capture the pointer
+    // (hides the cursor, events land in onCapturedPointerEvent and die) and
+    // swallow any mouse-sourced touches so a touchpad click can never
+    // tap-clear the history
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) window.decorView.requestPointerCapture()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE) ||
+            ev.isFromSource(InputDevice.SOURCE_TOUCHPAD)
+        ) {
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
     }
 }
 
@@ -203,9 +227,19 @@ fun MonitorScreen(monitor: InputMonitor) {
                         Spacer(Modifier.height(2.dp))
                         StreakCounter("CLEAN KBD", monitor.tech.kbdStreak.intValue)
                         Spacer(Modifier.height(2.dp))
+                        SpeedMeter(
+                            "KBD SPEED",
+                            monitor.tech.kbdSpeed.floatValue,
+                            monitor.tech.kbdLive.value,
+                        )
+                        Spacer(Modifier.height(2.dp))
                         StreakCounter("WAVEDASH", monitor.tech.wdStreak.intValue)
                         Spacer(Modifier.height(2.dp))
-                        WavuSpeed(monitor)
+                        SpeedMeter(
+                            "WAVU SPEED",
+                            monitor.tech.wavuSpeed.floatValue,
+                            monitor.tech.wavuLive.value,
+                        )
                     }
                     if (Calibration.display.value.isNotEmpty()) {
                         Text(
@@ -332,26 +366,28 @@ private fun HeaderRow(monitor: InputMonitor, modifier: Modifier) {
     }
 }
 
-// cd/s across the current wavedash streak — highlighted while it's live
-// computing, settling dim so the final value can be read after the streak
+// reps/s across the current streak — highlighted while it's live computing,
+// settling dim so the final value can be read after the streak
 @Composable
-private fun WavuSpeed(monitor: InputMonitor) {
-    val live = monitor.tech.wavuLive.value
+private fun SpeedMeter(label: String, value: Float, live: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            "WAVU SPEED",
+            label,
             color = DimText,
             fontSize = 10.sp,
             letterSpacing = 2.sp,
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            "%.1f/s".format(monitor.tech.wavuSpeed.floatValue),
+            "%.1f/s".format(value),
             color = if (live) Color(0xFFFFD54F) else Color(0xFF9AA7B4),
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Black,
             fontStyle = FontStyle.Italic,
             fontSize = if (live) 26.sp else 20.sp,
+            // fixed line box: the live/frozen size flip must not shift the
+            // rows below (the kbd meter sits above wavedash/wavu now)
+            lineHeight = 30.sp,
         )
     }
 }
